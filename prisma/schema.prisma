@@ -1,0 +1,207 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CommunityRole {
+  MEMBER
+  MODERATOR
+  OWNER
+}
+
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  LINK
+}
+
+model User {
+  id           Int    @id @default(autoincrement())
+  username     String @unique @db.VarChar(30)
+  email        String @unique @db.VarChar(255)
+  passwordHash String @map("password_hash") @db.Text
+  displayName  String @map("display_name") @db.VarChar(100)
+  bio          String? @db.Text
+  avatarUrl    String? @map("avatar_url") @db.Text
+  karma        Int    @default(0)
+  isActive     Boolean @map("is_active") @default(true)
+  createdAt    DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt    DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  communitiesCreated  Community[]         @relation("CommunityCreator")
+  communityMemberships CommunityMember[]
+  posts               Post[]
+  comments            Comment[]
+  postVotes           PostVote[]
+  commentVotes        CommentVote[]
+  refreshTokens       RefreshToken[]
+  media               Media[]
+
+  @@map("users")
+}
+
+model Community {
+  id           Int    @id @default(autoincrement())
+  name         String @unique @db.VarChar(50)
+  displayName  String @map("display_name") @db.VarChar(100)
+  description  String? @db.Text
+  iconUrl      String? @map("icon_url") @db.Text
+  bannerUrl    String? @map("banner_url") @db.Text
+  isPrivate    Boolean @map("is_private") @default(false)
+  isNsfw       Boolean @map("is_nsfw") @default(false)
+  memberCount  Int    @map("member_count") @default(0)
+  postCount    Int    @map("post_count") @default(0)
+  createdBy    Int    @map("created_by")
+  createdAt    DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt    DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  creator User @relation("CommunityCreator", fields: [createdBy], references: [id])
+  members CommunityMember[]
+  posts   Post[]
+
+  @@map("communities")
+}
+
+model CommunityMember {
+  communityId Int            @map("community_id")
+  userId      Int            @map("user_id")
+  role        CommunityRole
+  joinedAt    DateTime      @map("joined_at") @default(now()) @db.Timestamptz
+  bannedAt    DateTime?     @map("banned_at") @db.Timestamptz
+
+  // Relations
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+  @@map("community_members")
+}
+
+model Post {
+  id            Int      @id @default(autoincrement())
+  communityId   Int      @map("community_id")
+  authorId      Int      @map("author_id")
+  title         String   @db.VarChar(300)
+  content       String?  @db.Text
+  postType      PostType @map("post_type")
+  score         Int      @default(0)
+  upvoteCount   Int      @map("upvote_count") @default(0)
+  downvoteCount Int      @map("downvote_count") @default(0)
+  commentCount  Int      @map("comment_count") @default(0)
+  isPinned      Boolean  @map("is_pinned") @default(false)
+  isLocked      Boolean  @map("is_locked") @default(false)
+  isDeleted     Boolean  @map("is_deleted") @default(false)
+  createdAt     DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt     DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  votes     PostVote[]
+  comments  Comment[]
+  media     Media[]
+
+  @@map("posts")
+}
+
+model Comment {
+  id            Int      @id @default(autoincrement())
+  postId        Int      @map("post_id")
+  authorId      Int      @map("author_id")
+  parentId      Int?     @map("parent_id")
+  content       String   @db.Text
+  score         Int      @default(0)
+  upvoteCount   Int      @map("upvote_count") @default(0)
+  downvoteCount Int      @map("downvote_count") @default(0)
+  isDeleted     Boolean  @map("is_deleted") @default(false)
+  createdAt     DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt     DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  post   Post      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentReplies")
+  votes  CommentVote[]
+  media  Media[]
+
+  @@map("comments")
+}
+
+model PostVote {
+  userId    Int      @map("user_id")
+  postId    Int      @map("post_id")
+  vote      Int      @db.SmallInt
+  createdAt DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@id([userId, postId])
+  @@map("post_votes")
+}
+
+model CommentVote {
+  userId    Int      @map("user_id")
+  commentId Int      @map("comment_id")
+  vote      Int      @db.SmallInt
+  createdAt DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, commentId])
+  @@map("comment_votes")
+}
+
+model RefreshToken {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  tokenHash  String   @map("token_hash") @unique @db.Text
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt  DateTime @map("created_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model Media {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  postId     Int?     @map("post_id")
+  commentId  Int?     @map("comment_id")
+  storageKey String   @map("storage_key") @db.Text
+  url        String   @db.Text
+  mimeType   String   @map("mime_type") @db.VarChar(100)
+  sizeBytes  BigInt   @map("size_bytes")
+  createdAt  DateTime @map("created_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  post    Post?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@map("media")
+}
