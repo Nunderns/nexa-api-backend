@@ -3,6 +3,10 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 
+type ModelDelegate = {
+  deleteMany: () => Promise<unknown>;
+};
+
 @Injectable()
 export class PrismaService
   extends PrismaClient
@@ -24,8 +28,19 @@ export class PrismaService
   async cleanDatabase() {
     if (process.env.NODE_ENV === 'production') return;
 
-    const models = Reflect.ownKeys(this).filter((key) => key[0] !== '_');
+    const models = Reflect.ownKeys(this).filter(
+      (key): key is string =>
+        typeof key === 'string' && !key.startsWith('_') && !key.startsWith('$'),
+    );
 
-    return Promise.all(models.map((modelKey) => this[modelKey].deleteMany()));
+    return Promise.all(
+      models.map((modelKey) => {
+        const model = (this as unknown as Record<string, ModelDelegate>)[
+          modelKey
+        ];
+
+        return model?.deleteMany?.() ?? Promise.resolve();
+      }),
+    );
   }
 }

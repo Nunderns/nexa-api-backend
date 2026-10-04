@@ -4,14 +4,15 @@ import {
   MaxLength,
   IsOptional,
   IsEnum,
+  IsInt,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { PostType } from '@prisma/client';
 
 export class CreatePostDto {
   @ApiProperty({ example: 1 })
-  @IsString()
-  communityId: string;
+  @IsInt()
+  communityId: number;
 
   @ApiProperty({ example: 'My first post' })
   @IsString()
