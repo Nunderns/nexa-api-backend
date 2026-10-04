@@ -7,10 +7,12 @@
     "skipLibCheck": true,
     "outDir": "dist",
     "strict": true,
+    "strictPropertyInitialization": false,
     "jsx": "react",
     "sourceMap": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
+    "isolatedModules": true,
     "importHelpers": true,
     "moduleResolution": "node",
     "resolveJsonModule": true
