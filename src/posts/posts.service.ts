@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
-import { CommunityRole } from '@prisma/client';
+import { CommunityRole, Prisma } from '@prisma/client';
 
 @Injectable()
 export class PostsService {
@@ -72,15 +72,7 @@ export class PostsService {
   async findAll(page: number = 1, limit: number = 20, sortBy: string = 'hot') {
     const skip = (page - 1) * limit;
 
-    let orderBy: any = { createdAt: 'desc' };
-
-    if (sortBy === 'hot') {
-      orderBy = { score: 'desc' };
-    } else if (sortBy === 'new') {
-      orderBy = { createdAt: 'desc' };
-    } else if (sortBy === 'top') {
-      orderBy = { upvoteCount: 'desc' };
-    }
+    const orderBy = this.buildOrderBy(sortBy);
 
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
@@ -129,15 +121,7 @@ export class PostsService {
   ) {
     const skip = (page - 1) * limit;
 
-    let orderBy: any = { createdAt: 'desc' };
-
-    if (sortBy === 'hot') {
-      orderBy = { score: 'desc' };
-    } else if (sortBy === 'new') {
-      orderBy = { createdAt: 'desc' };
-    } else if (sortBy === 'top') {
-      orderBy = { upvoteCount: 'desc' };
-    }
+    const orderBy = this.buildOrderBy(sortBy);
 
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
@@ -413,5 +397,17 @@ export class PostsService {
       where: { id },
       data: { isLocked: false },
     });
+  }
+
+  private buildOrderBy(sortBy: string): Prisma.PostOrderByWithRelationInput {
+    switch (sortBy) {
+      case 'hot':
+        return { score: 'desc' };
+      case 'top':
+        return { upvoteCount: 'desc' };
+      case 'new':
+      default:
+        return { createdAt: 'desc' };
+    }
   }
 }

@@ -22,7 +22,7 @@ export class TransformInterceptor<T> implements NestInterceptor<
     context: ExecutionContext,
     next: CallHandler,
   ): Observable<Response<T>> {
-    return next.handle().pipe(
+    return (next.handle() as Observable<T>).pipe(
       map((data) => ({
         data,
         success: true,

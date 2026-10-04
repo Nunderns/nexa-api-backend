@@ -5,10 +5,10 @@ import {
 } from 'class-validator';
 
 export function IsEnumValue(
-  enumType: any,
+  enumType: Record<string, unknown>,
   validationOptions?: ValidationOptions,
 ) {
-  return function (object: Object, propertyName: string) {
+  return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isEnumValue',
       target: object.constructor,
@@ -16,11 +16,15 @@ export function IsEnumValue(
       constraints: [enumType],
       options: validationOptions,
       validator: {
-        validate(value: any, args: ValidationArguments) {
+        validate(value: unknown) {
           return Object.values(enumType).includes(value);
         },
         defaultMessage(args: ValidationArguments) {
-          return `${args.property} must be one of: ${Object.values(args.constraints[0]).join(', ')}`;
+          const allowed = Object.values(
+            args.constraints[0] as Record<string, unknown>,
+          );
+
+          return `${args.property} must be one of: ${allowed.join(', ')}`;
         },
       },
     });

@@ -6,7 +6,6 @@ import { CommunityRole, PostType } from '@prisma/client';
 
 describe('PostsService', () => {
   let service: PostsService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     post: {
@@ -75,7 +74,6 @@ describe('PostsService', () => {
     }).compile();
 
     service = module.get<PostsService>(PostsService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
@@ -147,7 +145,7 @@ describe('PostsService', () => {
       mockPrismaService.post.findMany.mockResolvedValue(posts);
       mockPrismaService.post.count.mockResolvedValue(1);
 
-      const result = await service.findAll(1, 20, 'new');
+      await service.findAll(1, 20, 'new');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
         where: { isDeleted: false },
@@ -163,7 +161,7 @@ describe('PostsService', () => {
       mockPrismaService.post.findMany.mockResolvedValue(posts);
       mockPrismaService.post.count.mockResolvedValue(1);
 
-      const result = await service.findAll(1, 20, 'top');
+      await service.findAll(1, 20, 'top');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
         where: { isDeleted: false },

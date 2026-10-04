@@ -10,7 +10,6 @@ import { CommunityRole } from '@prisma/client';
 
 describe('CommunitiesService', () => {
   let service: CommunitiesService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     community: {
@@ -72,7 +71,6 @@ describe('CommunitiesService', () => {
     }).compile();
 
     service = module.get<CommunitiesService>(CommunitiesService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {

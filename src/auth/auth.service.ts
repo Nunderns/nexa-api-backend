@@ -11,6 +11,11 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 
+interface JwtPayload {
+  sub: number;
+  email: string;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -48,7 +53,7 @@ export class AuthService {
       },
     });
 
-    const tokens = await this.generateTokens(user.id, user.email);
+    const tokens = this.generateTokens(user.id, user.email);
 
     await this.prisma.refreshToken.create({
       data: {
@@ -87,7 +92,7 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    const tokens = await this.generateTokens(user.id, user.email);
+    const tokens = this.generateTokens(user.id, user.email);
 
     await this.prisma.refreshToken.create({
       data: {
@@ -111,7 +116,7 @@ export class AuthService {
     const { refreshToken } = refreshTokenDto;
 
     try {
-      const payload = this.jwtService.verify(refreshToken, {
+      const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
         secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
       });
 
@@ -123,7 +128,7 @@ export class AuthService {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      const tokens = await this.generateTokens(user.id, user.email);
+      const tokens = this.generateTokens(user.id, user.email);
 
       await this.prisma.refreshToken.updateMany({
         where: {
@@ -142,7 +147,7 @@ export class AuthService {
         username: user.username,
         email: user.email,
       };
-    } catch (error) {
+    } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -153,7 +158,7 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(userId: number, email: string) {
+  private generateTokens(userId: number, email: string) {
     const payload = { sub: userId, email };
 
     const accessToken = this.jwtService.sign(payload, {
