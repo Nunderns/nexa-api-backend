@@ -24,12 +24,25 @@ export class HttpExceptionFilter implements ExceptionFilter {
         ? exception.message
         : 'Internal server error';
 
+    // The global CustomValidationPipe raises BadRequestException with an
+    // `errors` array naming each offending field. Rebuilding the envelope
+    // from scratch would drop it, leaving the client with nothing but
+    // "Validation failed" and no way to tell which field was rejected.
+    const details =
+      exception instanceof HttpException ? exception.getResponse() : undefined;
+
+    const errors =
+      typeof details === 'object' && details !== null && !Array.isArray(details)
+        ? (details as { errors?: unknown }).errors
+        : undefined;
+
     response.status(status).json({
       success: false,
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
       message,
+      ...(errors === undefined ? {} : { errors }),
     });
   }
 }

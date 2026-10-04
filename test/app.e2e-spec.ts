@@ -123,5 +123,31 @@ describe('App (e2e)', () => {
         expect.objectContaining({ success: false, statusCode: 400 }),
       );
     });
+
+    it('should tell which field was rejected instead of a bare "Validation failed"', async () => {
+      const response = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({
+          username: 'nunderns',
+          email: 'jhonas.silvera@example.com',
+          password: 'change@me',
+          displayName: 'Jhonas Silvera',
+        })
+        .expect(400);
+
+      expect(response.body).toEqual(
+        expect.objectContaining({
+          success: false,
+          statusCode: 400,
+          path: '/auth/register',
+          message: 'Validation failed',
+        }),
+      );
+      expect(response.body.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining('Password must contain'),
+        ]),
+      );
+    });
   });
 });
