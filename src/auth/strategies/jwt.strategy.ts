@@ -30,11 +30,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         avatarUrl: true,
         karma: true,
         isActive: true,
+        isEmailVerified: true,
       },
     });
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException();
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException('Email not verified');
     }
 
     return user;

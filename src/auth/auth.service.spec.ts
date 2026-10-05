@@ -1,8 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../common/email/email.service';
 import * as bcrypt from 'bcrypt';
 
 describe('AuthService', () => {
@@ -13,6 +18,7 @@ describe('AuthService', () => {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
     },
     refreshToken: {
       create: jest.fn(),
@@ -27,7 +33,11 @@ describe('AuthService', () => {
     verify: jest.fn(),
   };
 
-  const buildUser = (passwordHash: string) => ({
+  const mockEmailService = {
+    sendConfirmationEmail: jest.fn().mockResolvedValue(true),
+  };
+
+  const buildUser = (passwordHash: string, overrides = {}) => ({
     id: 1,
     username: 'testuser',
     email: 'test@example.com',
@@ -37,8 +47,12 @@ describe('AuthService', () => {
     avatarUrl: null,
     karma: 0,
     isActive: true,
+    isEmailVerified: true,
+    emailVerificationToken: null,
+    emailVerificationExpires: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...overrides,
   });
 
   const buildRefreshToken = () => ({
@@ -67,6 +81,10 @@ describe('AuthService', () => {
         {
           provide: JwtService,
           useValue: mockJwtService,
+        },
+        {
+          provide: EmailService,
+          useValue: mockEmailService,
         },
       ],
     }).compile();
@@ -123,6 +141,8 @@ describe('AuthService', () => {
           email: registerDto.email,
           displayName: registerDto.displayName,
           passwordHash: expect.any(String),
+          emailVerificationToken: expect.any(String),
+          emailVerificationExpires: expect.any(Date),
         }),
       });
       expect(mockPrismaService.refreshToken.create).toHaveBeenCalledWith({
@@ -131,6 +151,11 @@ describe('AuthService', () => {
           tokenHash: expect.any(String),
         }),
       });
+      expect(mockEmailService.sendConfirmationEmail).toHaveBeenCalledWith(
+        registerDto.email,
+        registerDto.username,
+        expect.any(String),
+      );
     });
 
     it('should store the password hashed, never in plain text', async () => {
@@ -204,6 +229,17 @@ describe('AuthService', () => {
       expect(mockPrismaService.refreshToken.create).toHaveBeenCalled();
     });
 
+    it('should throw UnauthorizedException if email not verified', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(
+        buildUser(passwordHash, { isEmailVerified: false }),
+      );
+
+      await expect(service.login(loginDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
+    });
+
     it('should throw UnauthorizedException with invalid credentials', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(
         buildUser(passwordHash),
@@ -267,6 +303,20 @@ describe('AuthService', () => {
       expect(mockPrismaService.refreshToken.updateMany).toHaveBeenCalled();
     });
 
+    it('should throw UnauthorizedException if email not verified', async () => {
+      mockJwtService.verify.mockReturnValue({
+        sub: 1,
+        email: 'test@example.com',
+      });
+      mockPrismaService.user.findUnique.mockResolvedValue(
+        buildUser(passwordHash, { isEmailVerified: false }),
+      );
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
     it('should throw UnauthorizedException if the token cannot be verified', async () => {
       mockJwtService.verify.mockImplementation(() => {
         throw new Error('invalid token');
@@ -324,6 +374,7 @@ describe('AuthService', () => {
       expect(select.passwordHash).toBeUndefined();
       expect(select.email).toBe(true);
       expect(select.isActive).toBe(true);
+      expect(select.isEmailVerified).toBe(true);
     });
 
     it('should return the user when found and active', async () => {
@@ -350,6 +401,72 @@ describe('AuthService', () => {
       });
 
       await expect(service.validateUser(1)).resolves.toBeNull();
+    });
+  });
+
+  describe('confirmEmail', () => {
+    const confirmEmailDto = { token: 'valid-token-123' };
+
+    it('should confirm email successfully', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(
+        buildUser(passwordHash, {
+          isEmailVerified: false,
+          emailVerificationToken: 'valid-token-123',
+          emailVerificationExpires: new Date(Date.now() + 3600000),
+        }),
+      );
+      mockPrismaService.user.update.mockResolvedValue(buildUser(passwordHash));
+
+      const result = await service.confirmEmail(confirmEmailDto);
+
+      expect(result).toEqual({ message: 'Email confirmed successfully' });
+      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
+        where: { emailVerificationToken: 'valid-token-123' },
+      });
+      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: {
+          isEmailVerified: true,
+          emailVerificationToken: null,
+          emailVerificationExpires: null,
+        },
+      });
+    });
+
+    it('should return message if email already confirmed', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(
+        buildUser(passwordHash, {
+          isEmailVerified: true,
+          emailVerificationToken: 'valid-token-123',
+        }),
+      );
+
+      const result = await service.confirmEmail(confirmEmailDto);
+
+      expect(result).toEqual({ message: 'Email already confirmed' });
+      expect(mockPrismaService.user.update).not.toHaveBeenCalled();
+    });
+
+    it('should throw BadRequestException if token is invalid', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.confirmEmail(confirmEmailDto)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException if token is expired', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(
+        buildUser(passwordHash, {
+          isEmailVerified: false,
+          emailVerificationToken: 'valid-token-123',
+          emailVerificationExpires: new Date(Date.now() - 3600000),
+        }),
+      );
+
+      await expect(service.confirmEmail(confirmEmailDto)).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

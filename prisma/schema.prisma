@@ -26,27 +26,30 @@ enum PostType {
 }
 
 model User {
-  id           Int    @id @default(autoincrement())
-  username     String @unique @db.VarChar(30)
-  email        String @unique @db.VarChar(255)
-  passwordHash String @map("password_hash") @db.Text
-  displayName  String @map("display_name") @db.VarChar(100)
-  bio          String? @db.Text
-  avatarUrl    String? @map("avatar_url") @db.Text
-  karma        Int    @default(0)
-  isActive     Boolean @map("is_active") @default(true)
-  createdAt    DateTime @map("created_at") @default(now()) @db.Timestamptz
-  updatedAt    DateTime @map("updated_at") @default(now()) @db.Timestamptz
+  id                      Int       @id @default(autoincrement())
+  username                String    @unique @db.VarChar(30)
+  email                   String    @unique @db.VarChar(255)
+  passwordHash            String    @map("password_hash") @db.Text
+  displayName             String    @map("display_name") @db.VarChar(100)
+  bio                     String?   @db.Text
+  avatarUrl               String?   @map("avatar_url") @db.Text
+  karma                   Int       @default(0)
+  isActive                Boolean   @map("is_active") @default(true)
+  isEmailVerified         Boolean   @map("is_email_verified") @default(false)
+  emailVerificationToken  String?   @map("email_verification_token") @unique @db.Text
+  emailVerificationExpires DateTime? @map("email_verification_expires") @db.Timestamptz
+  createdAt               DateTime  @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt               DateTime  @map("updated_at") @default(now()) @db.Timestamptz
 
   // Relations
-  communitiesCreated  Community[]         @relation("CommunityCreator")
-  communityMemberships CommunityMember[]
-  posts               Post[]
-  comments            Comment[]
-  postVotes           PostVote[]
-  commentVotes        CommentVote[]
-  refreshTokens       RefreshToken[]
-  media               Media[]
+  communitiesCreated      Community[]         @relation("CommunityCreator")
+  communityMemberships    CommunityMember[]
+  posts                   Post[]
+  comments                Comment[]
+  postVotes               PostVote[]
+  commentVotes            CommentVote[]
+  refreshTokens           RefreshToken[]
+  media                   Media[]
 
   @@map("users")
 }
