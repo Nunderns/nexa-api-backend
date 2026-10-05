@@ -51,6 +51,9 @@ model User {
   refreshTokens           RefreshToken[]
   passwordResetTokens     PasswordResetToken[]
   media                   Media[]
+  chatsAsFirstParticipant Chat[]                 @relation("ChatParticipantOne")
+  chatsAsSecondParticipant Chat[]                @relation("ChatParticipantTwo")
+  sentMessages            Message[]
 
   @@map("users")
 }
@@ -172,6 +175,58 @@ model CommentVote {
 
   @@id([userId, commentId])
   @@map("comment_votes")
+}
+
+/// One-to-one conversation between two users.
+///
+/// The two participants are stored in a canonical order
+/// (`user_one_id < user_two_id`, enforced by a database check constraint) so
+/// that A -> B and B -> A always resolve to the same row. The matching unique
+/// constraint is what actually prevents duplicates under concurrent requests.
+model Chat {
+  id Int @id @default(autoincrement())
+  /// Always the lower user id of the pair.
+  userOneId Int @map("user_one_id")
+  /// Always the higher user id of the pair.
+  userTwoId Int @map("user_two_id")
+  /// Timestamp of the most recent message, denormalized so listing a user's
+  /// chats can be ordered by recent activity without touching `messages`.
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz
+  createdAt     DateTime  @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt     DateTime  @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  userOne  User      @relation("ChatParticipantOne", fields: [userOneId], references: [id], onDelete: Cascade)
+  userTwo  User      @relation("ChatParticipantTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([userOneId, userTwoId])
+  @@index([userOneId, lastMessageAt])
+  @@index([userTwoId, lastMessageAt])
+  @@map("chats")
+}
+
+/// A single message inside a one-to-one conversation.
+model Message {
+  id       Int @id @default(autoincrement())
+  chatId   Int @map("chat_id")
+  senderId Int @map("sender_id")
+  /// Bounded at the database level as well, mirroring the DTO max length, so
+  /// an oversized message cannot be persisted by any other code path.
+  content   String   @db.VarChar(2000)
+  createdAt DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  // Covers "messages of a chat, oldest first" and "messages of a chat, newest
+  // first", which are the two directions the API reads them in.
+  @@index([chatId, id])
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@map("messages")
 }
 
 model RefreshToken {
