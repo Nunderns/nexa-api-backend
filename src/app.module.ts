@@ -10,6 +10,7 @@ import { PostsModule } from './posts/posts.module';
 import { CommentsModule } from './comments/comments.module';
 import { VotesModule } from './votes/votes.module';
 import { MediaModule } from './media/media.module';
+import { ChatModule } from './chat/chat.module';
 import { GLOBAL_RATE_LIMIT } from './common/config/rate-limit.config';
 
 @Module({
@@ -36,6 +37,7 @@ import { GLOBAL_RATE_LIMIT } from './common/config/rate-limit.config';
     CommentsModule,
     VotesModule,
     MediaModule,
+    ChatModule,
   ],
   providers: [
     // Registered as a global guard so it runs before JwtAuthGuard: a flood

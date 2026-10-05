@@ -53,6 +53,12 @@ src/
 │   ├── media.controller.ts
 │   ├── media.service.ts
 │   └── media.module.ts
+├── chat/                 # Chat 1:1 e mensagens
+│   ├── dto/
+│   ├── chat.controller.ts
+│   ├── chat.service.ts
+│   ├── chat.constants.ts
+│   └── chat.module.ts
 ├── prisma/               # Prisma ORM
 │   ├── prisma.service.ts
 │   └── prisma.module.ts
@@ -131,6 +137,13 @@ src/
 - `GET /media/user/:userId` - Listar mídia de um usuário
 - `DELETE /media/:id` - Deletar mídia (autenticado)
 
+### Chats (`/chats`)
+- `POST /chats` - Abrir conversa 1:1 com outro usuário (autenticado, idempotente)
+- `GET /chats` - Listar minhas conversas, mais recentes primeiro (autenticado, paginado)
+- `GET /chats/:chatId` - Buscar conversa por ID (autenticado)
+- `POST /chats/:chatId/messages` - Enviar mensagem (autenticado)
+- `GET /chats/:chatId/messages` - Listar mensagens da conversa, mais antigas primeiro (autenticado, paginado)
+
 ## 🔧 Configuração
 
 1. Copie o arquivo `.env.example` para `.env`
@@ -139,6 +152,33 @@ src/
    - `JWT_SECRET`: Secret para JWT access token
    - `JWT_REFRESH_SECRET`: Secret para JWT refresh token
    - `PORT`: Porta do servidor (default: 3000)
+
+### Rate limiting
+
+Todos os limites são lidos do ambiente e possuem um padrão seguro, portanto
+não é preciso definir nenhum deles para rodar o projeto.
+
+| Variável | Padrão | Escopo |
+| --- | --- | --- |
+| `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | 100 / 60s | Global, por IP |
+| `AUTH_RATE_LIMIT_MAX` | 5 / 60s | Login e registro, por IP |
+| `MEDIA_RATE_LIMIT_MAX` | 10 / 60s | Upload de mídia, por IP |
+| `PASSWORD_RESET_RATE_LIMIT_MAX` | 3 / 60s | Recuperação de senha, por IP |
+| `VERIFY_RESET_CODE_RATE_LIMIT_MAX` | 5 / 60s | Verificação do código, por IP |
+| `CHAT_CREATE_IP_RATE_LIMIT_MAX` | 30 / 60s | `POST /chats`, por IP |
+| `CHAT_CREATE_RATE_LIMIT_MAX` | 10 / 60s | `POST /chats`, por usuário |
+| `CHAT_MESSAGE_IP_RATE_LIMIT_MAX` | 60 / 60s | `POST /chats/:id/messages`, por IP |
+| `CHAT_MESSAGE_RATE_LIMIT_MAX` | 20 / 60s | `POST /chats/:id/messages`, por usuário |
+| `USER_RATE_LIMIT_MAX` | 200 / 60s | Fallback do limite por usuário |
+| `TRUST_PROXY_HOPS` | 1 | Buffers de proxy à frente da app |
+
+Endpoints de chat têm dois orçamentos independentes: um por IP (via
+`ThrottlerGuard` global) e um por usuário autenticado (via `UserThrottleGuard`).
+O limite por usuário é sempre mais apertado que o por IP, porque é ele que
+impede um abuso real (uma conta inundando a caixa de entrada de alguém ou
+criando conversas em massa), enquanto o limite por IP cobre o caso de um
+atacante que troca de IP a cada requisição. Um limite só por IP puniria
+usuários legítimos que compartilham a mesma conexão.
 
 ## 📦 Instalação
 
@@ -205,6 +245,8 @@ Authorization: Bearer <access_token>
 - ✅ Sistema de karma para usuários
 - ✅ Upload e gerenciamento de mídia
 - ✅ Sistema de roles (MEMBER, MODERATOR, OWNER)
+- ✅ Chat 1:1 com mensagens, sem conversas duplicadas e sem acesso de terceiros
+- ✅ Rate limiting por IP e por usuário autenticado
 - ✅ Paginação em todas as listagens
 - ✅ Validação de dados com class-validator
 - ✅ Documentação automática com Swagger

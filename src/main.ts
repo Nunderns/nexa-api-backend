@@ -18,6 +18,7 @@ async function bootstrap() {
     .addTag('comments', 'Comment management')
     .addTag('votes', 'Voting system')
     .addTag('media', 'Media management')
+    .addTag('chats', 'One-to-one chat and messaging')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
