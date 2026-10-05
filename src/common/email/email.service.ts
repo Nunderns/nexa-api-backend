@@ -129,4 +129,67 @@ If you didn't create an account, you can safely ignore this email.
     const template = this.generateConfirmationTemplate(token, username);
     return this.sendEmail(email, template);
   }
+
+  generatePasswordResetTemplate(code: string, username: string): EmailTemplate {
+    const subject = 'Password reset code';
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password reset code</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: #f8f9fa; border-radius: 8px; padding: 40px;">
+    <h1 style="color: #1a1a2e; margin-top: 0; margin-bottom: 24px;">Password reset request, ${username}</h1>
+    
+    <p style="font-size: 16px; margin-bottom: 24px;">You requested to reset your password. Use the verification code below to proceed:</p>
+    
+    <div style="text-align: center; margin: 32px 0;">
+      <span style="display: inline-block; background: #1a1a2e; color: white; padding: 20px 40px; border-radius: 6px; font-weight: 700; font-size: 32px; letter-spacing: 8px; font-family: monospace;">
+        ${code}
+      </span>
+    </div>
+    
+    <p style="font-size: 14px; color: #666; margin-bottom: 8px;">This code will expire in <strong>15 minutes</strong>.</p>
+    
+    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 32px 0;">
+    
+    <p style="font-size: 13px; color: #999; margin-bottom: 0;">If you didn't request a password reset, you can safely ignore this email. Your account security is not affected.</p>
+  </div>
+  
+  <div style="text-align: center; margin-top: 24px; font-size: 12px; color: #999;">
+    <p>&copy; ${new Date().getFullYear()} Nexa. All rights reserved.</p>
+  </div>
+</body>
+</html>
+`;
+
+    const text = `
+Password reset request, ${username}!
+
+You requested to reset your password. Use the verification code below to proceed:
+
+${code}
+
+This code will expire in 15 minutes.
+
+If you didn't request a password reset, you can safely ignore this email. Your account security is not affected.
+
+© ${new Date().getFullYear()} Nexa. All rights reserved.
+`;
+
+    return { subject, html, text };
+  }
+
+  async sendPasswordResetEmail(
+    email: string,
+    username: string,
+    code: string,
+  ): Promise<boolean> {
+    const template = this.generatePasswordResetTemplate(code, username);
+    return this.sendEmail(email, template);
+  }
 }

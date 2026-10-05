@@ -36,6 +36,25 @@ export const MEDIA_RATE_LIMIT = {
 };
 
 /**
+ * Budget for password reset endpoints. These are strictly limited because they
+ * involve sending emails and code verification. Deliberately very tight to
+ * prevent email spam and code brute-forcing.
+ */
+export const PASSWORD_RESET_RATE_LIMIT = {
+  limit: positiveInt(process.env.PASSWORD_RESET_RATE_LIMIT_MAX, 3),
+  ttl: positiveInt(process.env.PASSWORD_RESET_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/**
+ * Budget for password reset code verification. Even tighter to prevent
+ * brute-forcing the 6-digit code.
+ */
+export const VERIFY_RESET_CODE_RATE_LIMIT = {
+  limit: positiveInt(process.env.VERIFY_RESET_CODE_RATE_LIMIT_MAX, 5),
+  ttl: positiveInt(process.env.VERIFY_RESET_CODE_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/**
  * Number of reverse proxy hops in front of the app, used for `trust proxy`.
  *
  * The rate limiter keys on the client IP, so this must match the real
