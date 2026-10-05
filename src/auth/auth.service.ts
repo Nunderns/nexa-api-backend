@@ -2,14 +2,17 @@ import {
   Injectable,
   UnauthorizedException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../common/email/email.service';
 import * as bcrypt from 'bcrypt';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { ConfirmEmailDto } from './dto/confirm-email.dto';
 
 interface JwtPayload {
   sub: number;
@@ -21,7 +24,17 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
+
+  private generateVerificationToken(): string {
+    // Generate a secure random token (32 bytes = 256 bits)
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join(
+      '',
+    );
+  }
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
     const { username, email, password, displayName, bio } = registerDto;
@@ -42,6 +55,8 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
+    const verificationToken = this.generateVerificationToken();
+    const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
     const user = await this.prisma.user.create({
       data: {
@@ -50,8 +65,19 @@ export class AuthService {
         passwordHash,
         displayName,
         bio,
+        emailVerificationToken: verificationToken,
+        emailVerificationExpires: verificationExpires,
       },
     });
+
+    // Send confirmation email (don't await to avoid blocking registration)
+    this.emailService
+      .sendConfirmationEmail(user.email, user.username, verificationToken)
+      .catch((error: Error) => {
+        this.emailService['logger'].error(
+          `Failed to send confirmation email to ${user.email}: ${error.message}`,
+        );
+      });
 
     const tokens = this.generateTokens(user.id, user.email);
 
@@ -69,6 +95,42 @@ export class AuthService {
       username: user.username,
       email: user.email,
     };
+  }
+
+  async confirmEmail(
+    confirmEmailDto: ConfirmEmailDto,
+  ): Promise<{ message: string }> {
+    const { token } = confirmEmailDto;
+
+    const user = await this.prisma.user.findUnique({
+      where: { emailVerificationToken: token },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired confirmation token');
+    }
+
+    if (
+      user.emailVerificationExpires &&
+      user.emailVerificationExpires < new Date()
+    ) {
+      throw new BadRequestException('Confirmation token has expired');
+    }
+
+    if (user.isEmailVerified) {
+      return { message: 'Email already confirmed' };
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+      },
+    });
+
+    return { message: 'Email confirmed successfully' };
   }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
@@ -90,6 +152,12 @@ export class AuthService {
 
     if (!user.isActive) {
       throw new UnauthorizedException('Account is deactivated');
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException(
+        'Email not verified. Please check your inbox for the confirmation link.',
+      );
     }
 
     const tokens = this.generateTokens(user.id, user.email);
@@ -126,6 +194,12 @@ export class AuthService {
 
       if (!user || !user.isActive) {
         throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      if (!user.isEmailVerified) {
+        throw new UnauthorizedException(
+          'Email not verified. Please check your inbox for the confirmation link.',
+        );
       }
 
       const tokens = this.generateTokens(user.id, user.email);
@@ -186,6 +260,7 @@ export class AuthService {
         avatarUrl: true,
         karma: true,
         isActive: true,
+        isEmailVerified: true,
         createdAt: true,
       },
     });

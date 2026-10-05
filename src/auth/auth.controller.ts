@@ -1,10 +1,19 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  Get,
+  Query,
+} from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { ConfirmEmailDto } from './dto/confirm-email.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { AUTH_RATE_LIMIT } from '../common/config/rate-limit.config';
 
@@ -63,5 +72,22 @@ export class AuthController {
   @ApiResponse({ status: 204, description: 'User successfully logged out' })
   async logout(@Body('userId') userId: number): Promise<void> {
     return this.authService.logout(userId);
+  }
+
+  @Get('confirm-email')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: AUTH_RATE_LIMIT })
+  @ApiOperation({ summary: 'Confirm email address with token' })
+  @ApiQuery({ name: 'token', description: 'Email confirmation token' })
+  @ApiResponse({ status: 200, description: 'Email confirmed successfully' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid or expired confirmation token',
+  })
+  @ApiResponse({ status: 429, description: 'Too many requests' })
+  async confirmEmail(
+    @Query() confirmEmailDto: ConfirmEmailDto,
+  ): Promise<{ message: string }> {
+    return this.authService.confirmEmail(confirmEmailDto);
   }
 }

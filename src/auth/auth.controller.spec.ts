@@ -11,6 +11,7 @@ describe('AuthController', () => {
     login: jest.fn(),
     refreshToken: jest.fn(),
     logout: jest.fn(),
+    confirmEmail: jest.fn(),
   };
 
   const authResponse = {
@@ -47,10 +48,11 @@ describe('AuthController', () => {
     it('should expose the auth endpoints', () => {
       expect(collectRoutes(AuthController)).toEqual(
         [
-          'POST /auth/register',
+          'GET /auth/confirm-email',
           'POST /auth/login',
-          'POST /auth/refresh',
           'POST /auth/logout',
+          'POST /auth/refresh',
+          'POST /auth/register',
         ].sort(),
       );
     });
@@ -60,6 +62,9 @@ describe('AuthController', () => {
       expect(routeOf(AuthController, 'login')).toBe('POST /auth/login');
       expect(routeOf(AuthController, 'refresh')).toBe('POST /auth/refresh');
       expect(routeOf(AuthController, 'logout')).toBe('POST /auth/logout');
+      expect(routeOf(AuthController, 'confirmEmail')).toBe(
+        'GET /auth/confirm-email',
+      );
     });
   });
 
@@ -116,6 +121,22 @@ describe('AuthController', () => {
       await controller.logout(1);
 
       expect(mockAuthService.logout).toHaveBeenCalledWith(1);
+    });
+  });
+
+  describe('confirmEmail', () => {
+    it('should forward the token to the service', async () => {
+      const confirmEmailDto = { token: 'valid-token-123' };
+      const expectedResult = { message: 'Email confirmed successfully' };
+
+      mockAuthService.confirmEmail.mockResolvedValue(expectedResult);
+
+      const result = await controller.confirmEmail(confirmEmailDto);
+
+      expect(result).toEqual(expectedResult);
+      expect(mockAuthService.confirmEmail).toHaveBeenCalledWith(
+        confirmEmailDto,
+      );
     });
   });
 });
