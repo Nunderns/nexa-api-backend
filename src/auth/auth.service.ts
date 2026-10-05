@@ -13,6 +13,9 @@ import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
 import { ConfirmEmailDto } from './dto/confirm-email.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 
 interface JwtPayload {
   sub: number;
@@ -34,6 +37,209 @@ export class AuthService {
     return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join(
       '',
     );
+  }
+
+  private generateResetCode(): string {
+    // Generate a secure random 6-digit numeric code
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    // Ensure it's a 6-digit number (100000-999999)
+    return String(100000 + (array[0] % 900000));
+  }
+
+  private generateResetToken(): string {
+    // Generate a secure random token for the reset password step
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return Array.from(array, (byte) => byte.toString(16).padStart(2, '0')).join(
+      '',
+    );
+  }
+
+  async forgotPassword(
+    forgotPasswordDto: ForgotPasswordDto,
+  ): Promise<{ message: string }> {
+    const { email } = forgotPasswordDto;
+
+    // Find user by email (for account enumeration protection, we don't reveal if user exists)
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    // Always return the same message for security (account enumeration protection)
+    const genericMessage =
+      'If an account with this email exists, a password reset code has been sent.';
+
+    if (!user) {
+      return { message: genericMessage };
+    }
+
+    // Generate a secure 6-digit reset code
+    const resetCode = this.generateResetCode();
+    const codeHash = await bcrypt.hash(resetCode, 10);
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Invalidate any existing unused reset tokens for this user
+    await this.prisma.passwordResetToken.updateMany({
+      where: {
+        userId: user.id,
+        usedAt: null,
+      },
+      data: {
+        usedAt: new Date(),
+      },
+    });
+
+    // Create new password reset token
+    await this.prisma.passwordResetToken.create({
+      data: {
+        userId: user.id,
+        codeHash,
+        expiresAt,
+      },
+    });
+
+    // Send password reset email (don't await to avoid blocking)
+    this.emailService
+      .sendPasswordResetEmail(user.email, user.username, resetCode)
+      .catch((error: Error) => {
+        this.emailService['logger'].error(
+          `Failed to send password reset email to ${user.email}: ${error.message}`,
+        );
+      });
+
+    return { message: genericMessage };
+  }
+
+  async verifyResetCode(
+    verifyResetCodeDto: VerifyResetCodeDto,
+  ): Promise<{ resetToken: string }> {
+    const { email, code } = verifyResetCodeDto;
+
+    // Find user by email
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    // Find the latest unused reset token for this user
+    const resetToken = await this.prisma.passwordResetToken.findFirst({
+      where: {
+        userId: user.id,
+        usedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!resetToken) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    // Check if code has expired
+    if (resetToken.expiresAt < new Date()) {
+      throw new BadRequestException('Reset code has expired');
+    }
+
+    // Check attempts limit (max 5 attempts)
+    if (resetToken.attempts >= 5) {
+      throw new BadRequestException(
+        'Too many failed attempts. Please request a new code.',
+      );
+    }
+
+    // Verify the code
+    const isCodeValid = await bcrypt.compare(code, resetToken.codeHash);
+
+    // Increment attempts counter
+    await this.prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { attempts: resetToken.attempts + 1 },
+    });
+
+    if (!isCodeValid) {
+      throw new BadRequestException('Invalid or expired reset code');
+    }
+
+    // Generate a reset token for the password reset step
+    const resetTokenValue = this.generateResetToken();
+    const resetTokenHash = await bcrypt.hash(resetTokenValue, 10);
+    const resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+    // Mark the code as used and store the reset token
+    await this.prisma.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: {
+        usedAt: new Date(),
+        codeHash: resetTokenHash, // Reuse codeHash field to store the reset token hash
+        expiresAt: resetTokenExpires,
+      },
+    });
+
+    return { resetToken: resetTokenValue };
+  }
+
+  async resetPassword(
+    resetPasswordDto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
+    const { resetToken, newPassword } = resetPasswordDto;
+
+    // Find the reset token (by hashed value)
+    const storedToken = await this.prisma.passwordResetToken.findFirst({
+      where: {
+        usedAt: { not: null }, // Only tokens that have been verified (code used)
+        expiresAt: { gte: new Date() }, // Not expired
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!storedToken) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Verify the reset token
+    const isTokenValid = await bcrypt.compare(resetToken, storedToken.codeHash);
+
+    if (!isTokenValid) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Get the user
+    const user = await this.prisma.user.findUnique({
+      where: { id: storedToken.userId },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Hash the new password
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    // Update user password and invalidate all refresh tokens (force re-login)
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      }),
+      this.prisma.refreshToken.deleteMany({
+        where: { userId: user.id },
+      }),
+      this.prisma.passwordResetToken.update({
+        where: { id: storedToken.id },
+        data: {
+          usedAt: new Date(), // Mark as fully used
+          expiresAt: new Date(), // Expire immediately
+        },
+      }),
+    ]);
+
+    return {
+      message:
+        'Password reset successfully. Please log in with your new password.',
+    };
   }
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {

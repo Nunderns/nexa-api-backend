@@ -42,13 +42,14 @@ model User {
   updatedAt               DateTime  @map("updated_at") @default(now()) @db.Timestamptz
 
   // Relations
-  communitiesCreated      Community[]         @relation("CommunityCreator")
+  communitiesCreated      Community[]            @relation("CommunityCreator")
   communityMemberships    CommunityMember[]
   posts                   Post[]
   comments                Comment[]
   postVotes               PostVote[]
   commentVotes            CommentVote[]
   refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
   media                   Media[]
 
   @@map("users")
@@ -185,6 +186,22 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  codeHash   String   @map("code_hash") @db.Text
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz
+  usedAt     DateTime? @map("used_at") @db.Timestamptz
+  attempts   Int      @default(0)
+  createdAt  DateTime @map("created_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Media {
