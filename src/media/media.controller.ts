@@ -13,11 +13,13 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { MediaService } from './media.service';
 import { UploadMediaDto } from './dto/upload-media.dto';
 import { MediaResponseDto } from './dto/media-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { MEDIA_RATE_LIMIT } from '../common/config/rate-limit.config';
 
 @ApiTags('media')
 @Controller('media')
@@ -26,6 +28,7 @@ export class MediaController {
 
   @Post()
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: MEDIA_RATE_LIMIT })
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Upload media' })
   @ApiResponse({
@@ -37,6 +40,7 @@ export class MediaController {
     status: 403,
     description: 'Can only upload to own posts/comments',
   })
+  @ApiResponse({ status: 429, description: 'Too many uploads' })
   async upload(
     @Body() uploadMediaDto: UploadMediaDto,
     @CurrentUser('id') userId: number,

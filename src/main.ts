@@ -1,18 +1,10 @@
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { TransformInterceptor } from './common/interceptors/transform.interceptor';
-import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { CustomValidationPipe } from './common/pipes/validation.pipe';
+import { configureApp } from './common/config/configure-app';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-
-  app.useGlobalPipes(new CustomValidationPipe());
-  app.useGlobalInterceptors(new TransformInterceptor());
-  app.useGlobalFilters(new HttpExceptionFilter());
-
-  app.enableCors();
+  const app = configureApp(await NestFactory.create(AppModule));
 
   const config = new DocumentBuilder()
     .setTitle('Nexa API')

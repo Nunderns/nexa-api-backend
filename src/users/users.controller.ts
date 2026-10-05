@@ -14,6 +14,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
@@ -26,6 +28,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get()
   @ApiOperation({ summary: 'Get all users' })
   @ApiResponse({ status: 200, description: 'Users retrieved successfully' })
@@ -33,6 +36,7 @@ export class UsersController {
     return this.usersService.findAll(pagination.page, pagination.limit);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiResponse({
@@ -45,6 +49,7 @@ export class UsersController {
     return this.usersService.findOne(+id);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('username/:username')
   @ApiOperation({ summary: 'Get user by username' })
   @ApiResponse({
@@ -59,6 +64,7 @@ export class UsersController {
     return this.usersService.findByUsername(username);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -81,6 +87,7 @@ export class UsersController {
     return this.usersService.update(+id, updateUserDto, currentUserId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -98,6 +105,7 @@ export class UsersController {
     return this.usersService.remove(+id, currentUserId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id/posts')
   @ApiOperation({ summary: 'Get user posts' })
   @ApiResponse({
@@ -115,6 +123,7 @@ export class UsersController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id/comments')
   @ApiOperation({ summary: 'Get user comments' })
   @ApiResponse({

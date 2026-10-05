@@ -15,6 +15,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
@@ -28,6 +30,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -46,6 +49,7 @@ export class CommentsController {
     return this.commentsService.create(createCommentDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('post/:postId')
   @ApiOperation({ summary: 'Get comments by post' })
   @ApiResponse({ status: 200, description: 'Comments retrieved successfully' })
@@ -60,6 +64,7 @@ export class CommentsController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id/replies')
   @ApiOperation({ summary: 'Get comment replies' })
   @ApiResponse({ status: 200, description: 'Replies retrieved successfully' })
@@ -74,6 +79,7 @@ export class CommentsController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
   @ApiOperation({ summary: 'Get comment by ID' })
   @ApiResponse({
@@ -86,6 +92,7 @@ export class CommentsController {
     return this.commentsService.findOne(+id);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -105,6 +112,7 @@ export class CommentsController {
     return this.commentsService.update(+id, updateCommentDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -119,6 +127,7 @@ export class CommentsController {
     return this.commentsService.remove(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('user/:userId')
   @ApiOperation({ summary: 'Get user comments' })
   @ApiResponse({

@@ -15,6 +15,8 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
 import { CommunitiesService } from './communities.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
@@ -30,6 +32,7 @@ import { CommunityRole } from '@prisma/client';
 export class CommunitiesController {
   constructor(private readonly communitiesService: CommunitiesService) {}
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -47,6 +50,7 @@ export class CommunitiesController {
     return this.communitiesService.create(createCommunityDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get()
   @ApiOperation({ summary: 'Get all communities' })
   @ApiResponse({
@@ -57,6 +61,7 @@ export class CommunitiesController {
     return this.communitiesService.findAll(pagination.page, pagination.limit);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
   @ApiOperation({ summary: 'Get community by ID' })
   @ApiResponse({
@@ -69,6 +74,7 @@ export class CommunitiesController {
     return this.communitiesService.findOne(+id);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('name/:name')
   @ApiOperation({ summary: 'Get community by name' })
   @ApiResponse({
@@ -81,6 +87,7 @@ export class CommunitiesController {
     return this.communitiesService.findByName(name);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -103,6 +110,7 @@ export class CommunitiesController {
     return this.communitiesService.update(+id, updateCommunityDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -120,6 +128,7 @@ export class CommunitiesController {
     return this.communitiesService.remove(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/join')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -135,6 +144,7 @@ export class CommunitiesController {
     return this.communitiesService.join(+id, userId, joinCommunityDto);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/leave')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -149,6 +159,7 @@ export class CommunitiesController {
     return this.communitiesService.leave(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id/members')
   @ApiOperation({ summary: 'Get community members' })
   @ApiResponse({ status: 200, description: 'Members retrieved successfully' })
@@ -163,6 +174,7 @@ export class CommunitiesController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Put(':id/members/:userId/role')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -186,6 +198,7 @@ export class CommunitiesController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/members/:userId/ban')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
