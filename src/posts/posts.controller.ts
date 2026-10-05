@@ -16,6 +16,8 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -29,6 +31,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post()
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -49,6 +52,7 @@ export class PostsController {
     return this.postsService.create(createPostDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get()
   @ApiOperation({ summary: 'Get all posts' })
   @ApiQuery({ name: 'sortBy', enum: ['hot', 'new', 'top'], required: false })
@@ -60,6 +64,7 @@ export class PostsController {
     return this.postsService.findAll(pagination.page, pagination.limit, sortBy);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('community/:communityId')
   @ApiOperation({ summary: 'Get posts by community' })
   @ApiQuery({ name: 'sortBy', enum: ['hot', 'new', 'top'], required: false })
@@ -77,6 +82,7 @@ export class PostsController {
     );
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
   @ApiOperation({ summary: 'Get post by ID' })
   @ApiResponse({
@@ -89,6 +95,7 @@ export class PostsController {
     return this.postsService.findOne(+id);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Put(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -108,6 +115,7 @@ export class PostsController {
     return this.postsService.update(+id, updatePostDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -122,6 +130,7 @@ export class PostsController {
     return this.postsService.remove(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/pin')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -138,6 +147,7 @@ export class PostsController {
     return this.postsService.pin(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/unpin')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -154,6 +164,7 @@ export class PostsController {
     return this.postsService.unpin(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/lock')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -170,6 +181,7 @@ export class PostsController {
     return this.postsService.lock(+id, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post(':id/unlock')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

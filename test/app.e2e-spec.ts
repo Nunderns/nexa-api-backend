@@ -4,9 +4,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 import { PrismaService } from './../src/prisma/prisma.service';
-import { CustomValidationPipe } from './../src/common/pipes/validation.pipe';
-import { TransformInterceptor } from './../src/common/interceptors/transform.interceptor';
-import { HttpExceptionFilter } from './../src/common/filters/http-exception.filter';
+import { configureApp } from './../src/common/config/configure-app';
 import { PostType } from '@prisma/client';
 
 /**
@@ -43,10 +41,7 @@ describe('App (e2e)', () => {
       .useValue(mockPrismaService)
       .compile();
 
-    app = moduleFixture.createNestApplication();
-    app.useGlobalPipes(new CustomValidationPipe());
-    app.useGlobalInterceptors(new TransformInterceptor());
-    app.useGlobalFilters(new HttpExceptionFilter());
+    app = configureApp(moduleFixture.createNestApplication());
     await app.init();
   });
 

@@ -1,10 +1,13 @@
-import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
+import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
+import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
+
 import { VotesService } from './votes.service';
 import { VoteDto } from './dto/vote.dto';
 import { PostVoteResponseDto } from './dto/post-vote-response.dto';
@@ -17,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class VotesController {
   constructor(private readonly votesService: VotesService) {}
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post('post/:postId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -35,6 +39,7 @@ export class VotesController {
     return this.votesService.voteOnPost(+postId, voteDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('post/:postId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -51,6 +56,7 @@ export class VotesController {
     return this.votesService.getPostVote(+postId, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Post('comment/:commentId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
@@ -69,6 +75,7 @@ export class VotesController {
     return this.votesService.voteOnComment(+commentId, voteDto, userId);
   }
 
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('comment/:commentId')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
