@@ -140,4 +140,40 @@ export class UsersController {
       pagination.limit,
     );
   }
+
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get(':id/upvoted')
+  @ApiOperation({ summary: 'Get posts upvoted by the user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Upvoted posts retrieved successfully',
+  })
+  async getUserUpvoted(
+    @Param('id') id: string,
+    @Query() pagination: PaginationDto,
+  ) {
+    return this.usersService.getUserUpvoted(
+      +id,
+      pagination.page,
+      pagination.limit,
+    );
+  }
+
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get(':id/downvoted')
+  @ApiOperation({ summary: 'Get posts downvoted by the user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Downvoted posts retrieved successfully',
+  })
+  async getUserDownvoted(
+    @Param('id') id: string,
+    @Query() pagination: PaginationDto,
+  ) {
+    return this.usersService.getUserDownvoted(
+      +id,
+      pagination.page,
+      pagination.limit,
+    );
+  }
 }

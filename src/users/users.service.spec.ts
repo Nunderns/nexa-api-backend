@@ -21,6 +21,10 @@ describe('UsersService', () => {
       findMany: jest.fn(),
       count: jest.fn(),
     },
+    postVote: {
+      findMany: jest.fn(),
+      count: jest.fn(),
+    },
   };
 
   const mockUser = {
@@ -226,6 +230,52 @@ describe('UsersService', () => {
       expect(result.data).toHaveLength(1);
       expect(mockPrismaService.comment.findMany).toHaveBeenCalledWith({
         where: { authorId: 1, isDeleted: false },
+        skip: 0,
+        take: 20,
+        include: expect.any(Object),
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  });
+
+  describe('getUserUpvoted', () => {
+    it('should return posts the user upvoted, newest vote first', async () => {
+      const posts = [{ id: 1, title: 'Test Post' }];
+      mockPrismaService.postVote.findMany.mockResolvedValue(
+        posts.map((post) => ({ userId: 1, postId: post.id, vote: 1, post })),
+      );
+      mockPrismaService.postVote.count.mockResolvedValue(1);
+
+      const result = await service.getUserUpvoted(1, 1, 20);
+
+      expect(result).toHaveProperty('data');
+      expect(result.data).toEqual(posts);
+      expect(result).toHaveProperty('total', 1);
+      expect(mockPrismaService.postVote.findMany).toHaveBeenCalledWith({
+        where: { userId: 1, vote: 1, post: { isDeleted: false } },
+        skip: 0,
+        take: 20,
+        include: expect.any(Object),
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+  });
+
+  describe('getUserDownvoted', () => {
+    it('should return posts the user downvoted, newest vote first', async () => {
+      const posts = [{ id: 2, title: 'Other Post' }];
+      mockPrismaService.postVote.findMany.mockResolvedValue(
+        posts.map((post) => ({ userId: 1, postId: post.id, vote: -1, post })),
+      );
+      mockPrismaService.postVote.count.mockResolvedValue(1);
+
+      const result = await service.getUserDownvoted(1, 1, 20);
+
+      expect(result).toHaveProperty('data');
+      expect(result.data).toEqual(posts);
+      expect(result).toHaveProperty('total', 1);
+      expect(mockPrismaService.postVote.findMany).toHaveBeenCalledWith({
+        where: { userId: 1, vote: -1, post: { isDeleted: false } },
         skip: 0,
         take: 20,
         include: expect.any(Object),
