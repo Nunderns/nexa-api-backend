@@ -212,4 +212,62 @@ export class UsersService {
       totalPages: Math.ceil(total / limit),
     };
   }
+
+  async getUserUpvoted(userId: number, page: number = 1, limit: number = 20) {
+    return this.getUserVotedPosts(userId, 1, page, limit);
+  }
+
+  async getUserDownvoted(userId: number, page: number = 1, limit: number = 20) {
+    return this.getUserVotedPosts(userId, -1, page, limit);
+  }
+
+  private async getUserVotedPosts(
+    userId: number,
+    vote: number,
+    page: number,
+    limit: number,
+  ) {
+    const skip = (page - 1) * limit;
+    const where = { userId, vote, post: { isDeleted: false } };
+
+    const [votes, total] = await Promise.all([
+      this.prisma.postVote.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          post: {
+            include: {
+              community: {
+                select: {
+                  id: true,
+                  name: true,
+                  displayName: true,
+                  iconUrl: true,
+                },
+              },
+              author: {
+                select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                  avatarUrl: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.postVote.count({ where }),
+    ]);
+
+    return {
+      data: votes.map((entry) => entry.post),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
 }

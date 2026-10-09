@@ -14,6 +14,8 @@ describe('UsersController', () => {
     remove: jest.fn(),
     getUserPosts: jest.fn(),
     getUserComments: jest.fn(),
+    getUserUpvoted: jest.fn(),
+    getUserDownvoted: jest.fn(),
   };
 
   const paginated = {
@@ -57,6 +59,8 @@ describe('UsersController', () => {
           'DELETE /users/:id',
           'GET /users/:id/posts',
           'GET /users/:id/comments',
+          'GET /users/:id/upvoted',
+          'GET /users/:id/downvoted',
         ].sort(),
       );
     });
@@ -74,6 +78,12 @@ describe('UsersController', () => {
       );
       expect(routeOf(UsersController, 'getUserComments')).toBe(
         'GET /users/:id/comments',
+      );
+      expect(routeOf(UsersController, 'getUserUpvoted')).toBe(
+        'GET /users/:id/upvoted',
+      );
+      expect(routeOf(UsersController, 'getUserDownvoted')).toBe(
+        'GET /users/:id/downvoted',
       );
     });
   });
@@ -166,6 +176,26 @@ describe('UsersController', () => {
       await controller.getUserComments('7', { page: 1, limit: 20 });
 
       expect(mockUsersService.getUserComments).toHaveBeenCalledWith(7, 1, 20);
+    });
+  });
+
+  describe('getUserUpvoted', () => {
+    it('should convert the id and forward the pagination', async () => {
+      mockUsersService.getUserUpvoted.mockResolvedValue(paginated);
+
+      await controller.getUserUpvoted('3', { page: 2, limit: 10 });
+
+      expect(mockUsersService.getUserUpvoted).toHaveBeenCalledWith(3, 2, 10);
+    });
+  });
+
+  describe('getUserDownvoted', () => {
+    it('should convert the id and forward the pagination', async () => {
+      mockUsersService.getUserDownvoted.mockResolvedValue(paginated);
+
+      await controller.getUserDownvoted('4', { page: 1, limit: 5 });
+
+      expect(mockUsersService.getUserDownvoted).toHaveBeenCalledWith(4, 1, 5);
     });
   });
 });
