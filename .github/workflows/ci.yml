@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [developer, main]
+  push:
+    branches: [developer, main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Lint, typecheck, tests and build
+    runs-on: ubuntu-latest
+
+    env:
+      NODE_ENV: test
+      # Só é lido para validar o schema/generate do Prisma; os testes e2e
+      # substituem o PrismaService por um mock e não tocam em banco real.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/nexa_db?schema=public
+      JWT_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test -- --runInBand
+
+      - name: Build
+        run: npm run build
+
+      - name: E2E tests
+        run: npm run test:e2e -- --runInBand
