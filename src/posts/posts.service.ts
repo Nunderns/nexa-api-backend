@@ -69,14 +69,25 @@ export class PostsService {
     return post;
   }
 
-  async findAll(page: number = 1, limit: number = 20, sortBy: string = 'hot') {
+  async findAll(
+    page: number = 1,
+    limit: number = 20,
+    sortBy: string = 'hot',
+    time: string = 'all',
+  ) {
     const skip = (page - 1) * limit;
 
     const orderBy = this.buildOrderBy(sortBy);
+    const timeStart = this.getTimeRangeStart(time);
+
+    const where: Prisma.PostWhereInput = { isDeleted: false };
+    if (timeStart) {
+      where.createdAt = { gte: timeStart };
+    }
 
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
-        where: { isDeleted: false },
+        where,
         skip,
         take: limit,
         include: {
@@ -99,9 +110,7 @@ export class PostsService {
         },
         orderBy,
       }),
-      this.prisma.post.count({
-        where: { isDeleted: false },
-      }),
+      this.prisma.post.count({ where }),
     ]);
 
     return {
@@ -118,14 +127,21 @@ export class PostsService {
     page: number = 1,
     limit: number = 20,
     sortBy: string = 'hot',
+    time: string = 'all',
   ) {
     const skip = (page - 1) * limit;
 
     const orderBy = this.buildOrderBy(sortBy);
+    const timeStart = this.getTimeRangeStart(time);
+
+    const where: Prisma.PostWhereInput = { communityId, isDeleted: false };
+    if (timeStart) {
+      where.createdAt = { gte: timeStart };
+    }
 
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
-        where: { communityId, isDeleted: false },
+        where,
         skip,
         take: limit,
         include: {
@@ -148,9 +164,7 @@ export class PostsService {
         },
         orderBy,
       }),
-      this.prisma.post.count({
-        where: { communityId, isDeleted: false },
-      }),
+      this.prisma.post.count({ where }),
     ]);
 
     return {
@@ -399,15 +413,51 @@ export class PostsService {
     });
   }
 
-  private buildOrderBy(sortBy: string): Prisma.PostOrderByWithRelationInput {
+  private buildOrderBy(
+    sortBy: string,
+  ):
+    | Prisma.PostOrderByWithRelationInput
+    | Prisma.PostOrderByWithRelationInput[] {
     switch (sortBy) {
+      case 'featured':
+        return [{ isPinned: 'desc' }, { score: 'desc' }, { createdAt: 'desc' }];
       case 'hot':
         return { score: 'desc' };
       case 'top':
         return { upvoteCount: 'desc' };
       case 'new':
-      default:
         return { createdAt: 'desc' };
+      default:
+        return { score: 'desc' };
+    }
+  }
+
+  private getTimeRangeStart(time: string): Date | null {
+    const now = new Date();
+    switch (time) {
+      case 'hour':
+        return new Date(now.getTime() - 60 * 60 * 1000);
+      case 'today':
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      case 'week': {
+        const start = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+        );
+        const day = start.getDay();
+        const diff = start.getDate() - day + (day === 0 ? -6 : 1); // Monday start
+        start.setDate(diff);
+        start.setHours(0, 0, 0, 0);
+        return start;
+      }
+      case 'month':
+        return new Date(now.getFullYear(), now.getMonth(), 1);
+      case 'year':
+        return new Date(now.getFullYear(), 0, 1);
+      case 'all':
+      default:
+        return null;
     }
   }
 }

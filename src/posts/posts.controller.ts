@@ -55,30 +55,56 @@ export class PostsController {
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get()
   @ApiOperation({ summary: 'Get all posts' })
-  @ApiQuery({ name: 'sortBy', enum: ['hot', 'new', 'top'], required: false })
+  @ApiQuery({
+    name: 'sortBy',
+    enum: ['featured', 'hot', 'new', 'top'],
+    required: false,
+  })
+  @ApiQuery({
+    name: 'time',
+    enum: ['hour', 'today', 'week', 'month', 'year', 'all'],
+    required: false,
+  })
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
   async findAll(
     @Query() pagination: PaginationDto,
     @Query('sortBy') sortBy: string = 'hot',
+    @Query('time') time: string = 'all',
   ) {
-    return this.postsService.findAll(pagination.page, pagination.limit, sortBy);
+    return this.postsService.findAll(
+      pagination.page,
+      pagination.limit,
+      sortBy,
+      time,
+    );
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('community/:communityId')
   @ApiOperation({ summary: 'Get posts by community' })
-  @ApiQuery({ name: 'sortBy', enum: ['hot', 'new', 'top'], required: false })
+  @ApiQuery({
+    name: 'sortBy',
+    enum: ['featured', 'hot', 'new', 'top'],
+    required: false,
+  })
+  @ApiQuery({
+    name: 'time',
+    enum: ['hour', 'today', 'week', 'month', 'year', 'all'],
+    required: false,
+  })
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
   async findByCommunity(
     @Param('communityId') communityId: string,
     @Query() pagination: PaginationDto,
     @Query('sortBy') sortBy: string = 'hot',
+    @Query('time') time: string = 'all',
   ) {
     return this.postsService.findByCommunity(
       +communityId,
       pagination.page,
       pagination.limit,
       sortBy,
+      time,
     );
   }
 

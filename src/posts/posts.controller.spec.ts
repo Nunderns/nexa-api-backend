@@ -104,34 +104,50 @@ describe('PostsController', () => {
   });
 
   describe('findAll', () => {
-    it('should forward pagination and sortBy', async () => {
+    it('should forward pagination, sortBy and time', async () => {
       mockPostsService.findAll.mockResolvedValue(paginated);
 
-      await controller.findAll({ page: 2, limit: 10 }, 'new');
+      await controller.findAll({ page: 2, limit: 10 }, 'featured', 'week');
 
-      expect(mockPostsService.findAll).toHaveBeenCalledWith(2, 10, 'new');
+      expect(mockPostsService.findAll).toHaveBeenCalledWith(
+        2,
+        10,
+        'featured',
+        'week',
+      );
     });
 
-    it('should fall back to hot sorting when sortBy is not provided', async () => {
+    it('should fall back to hot sorting and all time when the query is empty', async () => {
       mockPostsService.findAll.mockResolvedValue(paginated);
 
       await controller.findAll({ page: 1, limit: 20 });
 
-      expect(mockPostsService.findAll).toHaveBeenCalledWith(1, 20, 'hot');
+      expect(mockPostsService.findAll).toHaveBeenCalledWith(
+        1,
+        20,
+        'hot',
+        'all',
+      );
     });
   });
 
   describe('findByCommunity', () => {
-    it('should convert the community id and forward pagination and sortBy', async () => {
+    it('should convert the community id and forward pagination, sortBy and time', async () => {
       mockPostsService.findByCommunity.mockResolvedValue(paginated);
 
-      await controller.findByCommunity('1', { page: 1, limit: 20 }, 'top');
+      await controller.findByCommunity(
+        '1',
+        { page: 1, limit: 20 },
+        'top',
+        'today',
+      );
 
       expect(mockPostsService.findByCommunity).toHaveBeenCalledWith(
         1,
         1,
         20,
         'top',
+        'today',
       );
     });
   });

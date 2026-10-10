@@ -104,7 +104,7 @@ src/
 
 ### Posts (`/posts`)
 - `POST /posts` - Criar post (autenticado)
-- `GET /posts` - Listar posts (paginado, filtrável por hot/new/top)
+- `GET /posts` - Listar posts (paginado, ordenável e filtrável por período)
 - `GET /posts/community/:communityId` - Listar posts por comunidade
 - `GET /posts/:id` - Buscar post por ID
 - `PUT /posts/:id` - Atualizar post (autenticado)
@@ -152,6 +152,35 @@ src/
    - `JWT_SECRET`: Secret para JWT access token
    - `JWT_REFRESH_SECRET`: Secret para JWT refresh token
    - `PORT`: Porta do servidor (default: 3000)
+
+### Ordenação e filtro de período dos posts
+
+`GET /posts` e `GET /posts/community/:communityId` aceitam dois query params
+independentes, que podem ser combinados livremente.
+
+`sortBy` define a ordenação:
+
+| Valor | Resultado |
+| --- | --- |
+| `featured` | Fixados primeiro, depois por `score` e, no empate, mais recentes |
+| `hot` | Maior `score` (padrão) |
+| `top` | Mais votados (`upvoteCount`) |
+| `new` | Mais recentes |
+
+`time` restringe a janela de tempo, aplicada sobre `createdAt`:
+
+| Valor | Resultado |
+| --- | --- |
+| `hour` | Última hora |
+| `today` | Desde as 00:00 do dia de hoje |
+| `week` | Desde segunda-feira da semana atual |
+| `month` | Desde o dia 1º do mês atual |
+| `year` | Desde 1º de janeiro do ano atual |
+| `all` | Sem restrição de período (padrão) |
+
+Exemplo: `GET /posts?sortBy=top&time=month` retorna os posts mais votados do
+mês. O filtro é aplicado tanto na busca quanto na contagem, então `total` e
+`totalPages` refletem sempre a mesma janela.
 
 ### Rate limiting
 

@@ -171,6 +171,50 @@ describe('PostsService', () => {
         orderBy: { upvoteCount: 'desc' },
       });
     });
+
+    it('should put pinned posts first when sorting by featured', async () => {
+      mockPrismaService.post.findMany.mockResolvedValue([mockPost]);
+      mockPrismaService.post.count.mockResolvedValue(1);
+
+      await service.findAll(1, 20, 'featured');
+
+      expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
+        where: { isDeleted: false },
+        skip: 0,
+        take: 20,
+        include: expect.any(Object),
+        orderBy: [
+          { isPinned: 'desc' },
+          { score: 'desc' },
+          { createdAt: 'desc' },
+        ],
+      });
+    });
+
+    it('should not filter by date when time is all', async () => {
+      mockPrismaService.post.findMany.mockResolvedValue([mockPost]);
+      mockPrismaService.post.count.mockResolvedValue(1);
+
+      await service.findAll(1, 20, 'new', 'all');
+
+      expect(mockPrismaService.post.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { isDeleted: false } }),
+      );
+    });
+
+    it('should count only the posts inside the time window', async () => {
+      mockPrismaService.post.findMany.mockResolvedValue([]);
+      mockPrismaService.post.count.mockResolvedValue(0);
+
+      await service.findAll(1, 20, 'top', 'year');
+
+      const findManyWhere =
+        mockPrismaService.post.findMany.mock.calls[0][0].where;
+      const countWhere = mockPrismaService.post.count.mock.calls[0][0].where;
+
+      expect(findManyWhere.createdAt).toBeDefined();
+      expect(countWhere).toEqual(findManyWhere);
+    });
   });
 
   describe('findByCommunity', () => {
@@ -189,6 +233,23 @@ describe('PostsService', () => {
         take: 20,
         include: expect.any(Object),
         orderBy: { score: 'desc' },
+      });
+    });
+
+    it('should narrow the community query by the time window too', async () => {
+      mockPrismaService.post.findMany.mockResolvedValue([]);
+      mockPrismaService.post.count.mockResolvedValue(0);
+
+      await service.findByCommunity(1, 1, 20, 'top', 'month');
+
+      const findManyWhere =
+        mockPrismaService.post.findMany.mock.calls[0][0].where;
+
+      expect(findManyWhere.communityId).toBe(1);
+      expect(findManyWhere.isDeleted).toBe(false);
+      expect(findManyWhere.createdAt).toBeDefined();
+      expect(mockPrismaService.post.count).toHaveBeenCalledWith({
+        where: findManyWhere,
       });
     });
   });
