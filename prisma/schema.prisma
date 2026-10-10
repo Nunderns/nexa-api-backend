@@ -107,6 +107,13 @@ model Post {
   upvoteCount   Int      @map("upvote_count") @default(0)
   downvoteCount Int      @map("downvote_count") @default(0)
   commentCount  Int      @map("comment_count") @default(0)
+  // Reach counters. Denormalized for the same reason `commentCount` is: the
+  // post detail page reads them on every load, and counting rows per request
+  // would turn a cheap read into an aggregate scan.
+  viewCount     Int      @map("view_count") @default(0)
+  shareCount    Int      @map("share_count") @default(0)
+  repostCount   Int      @map("repost_count") @default(0)
+  awardCount    Int      @map("award_count") @default(0)
   isPinned      Boolean  @map("is_pinned") @default(false)
   isLocked      Boolean  @map("is_locked") @default(false)
   isDeleted     Boolean  @map("is_deleted") @default(false)
@@ -119,8 +126,66 @@ model Post {
   votes     PostVote[]
   comments  Comment[]
   media     Media[]
+  views     PostView[]
+  viewStats PostViewStat[]
 
+  // Feeds sort by `score`, which leans on the vote columns, and the insights
+  // endpoint reads the reach counters, so both column groups are hot.
+  @@index([communityId, isDeleted, score])
+  @@index([authorId, isDeleted])
+  @@index([createdAt])
   @@map("posts")
+}
+
+/// One recorded visit to a post.
+///
+/// Raw events are kept because "who saw this post and when" cannot be
+/// recovered from the hourly rollup, and the rollup cannot be corrected
+/// retroactively if the deduplication rule changes. Growth is bounded by the
+/// per-IP/per-user rate limits on `POST /posts/:id/view`, and rows can be
+/// pruned by age without affecting the totals.
+model PostView {
+  id        Int      @id @default(autoincrement())
+  postId    Int      @map("post_id")
+  /// Stable hash of the visitor (user id when signed in, client IP otherwise).
+  /// Hashed rather than stored raw so the table cannot be used to re-identify
+  /// anonymous readers, while still allowing per-visitor deduplication.
+  viewerKey String   @map("viewer_key") @db.VarChar(64)
+  /// ISO 3166-1 alpha-2, or `XX` when the country cannot be determined.
+  countryCode String @map("country_code") @default("XX") @db.VarChar(2)
+  viewedAt  DateTime @default(now()) @map("viewed_at") @db.Timestamptz
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// Serves the per-visitor dedupe window: "has this visitor already been
+  /// counted for this post since <cutoff>".
+  @@index([postId, viewerKey, viewedAt])
+  /// Serves the hourly rollup read and any time-range filter.
+  @@index([postId, viewedAt])
+  @@map("post_views")
+}
+
+/// Hourly pre-aggregated views for a post, split by country.
+///
+/// The insights screen reads 48 buckets on every load and groups by country;
+/// deriving both from `PostView` would scan every raw row the post has ever
+/// accumulated. This table is written on the same path that appends the raw
+/// event, so the two can only drift if the write is interrupted.
+model PostViewStat {
+  postId      Int      @map("post_id")
+  /// Start of the hour, always minute/second/millisecond zero.
+  bucketStart DateTime @map("bucket_start") @db.Timestamptz
+  /// ISO 3166-1 alpha-2, or `XX` when the country cannot be determined.
+  countryCode String   @map("country_code") @db.VarChar(2)
+  views       Int      @default(0)
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// One row per (post, hour, country), which also covers "views of this post
+  /// over time" and "views of this post by country" as index scans.
+  @@id([postId, bucketStart, countryCode])
+  @@index([postId, bucketStart])
+  @@map("post_view_stats")
 }
 
 model Comment {

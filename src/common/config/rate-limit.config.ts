@@ -116,6 +116,32 @@ export const CHAT_MESSAGE_RATE_LIMIT = {
 };
 
 /**
+ * Per-IP budget for recording a post view.
+ *
+ * Views are the one write every single read of a post can trigger, so the
+ * global budget is not enough of a ceiling: a client looping `GET /posts/:id`
+ * would otherwise write one row per request. Kept well above the global limit
+ * because a legitimate reader can page through many posts in a minute.
+ */
+export const POST_VIEW_IP_RATE_LIMIT = {
+  limit: positiveInt(process.env.POST_VIEW_IP_RATE_LIMIT_MAX, 120),
+  ttl: positiveInt(process.env.POST_VIEW_IP_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/**
+ * Per-IP budget for reading post insights.
+ *
+ * Insights are heavier than a post read: 48 rollup buckets plus a group-by per
+ * request. They are also author/mod-gated, but the role check happens after
+ * the query is issued, so this budget is what actually bounds the database
+ * load from unauthenticated probing.
+ */
+export const INSIGHTS_IP_RATE_LIMIT = {
+  limit: positiveInt(process.env.INSIGHTS_IP_RATE_LIMIT_MAX, 30),
+  ttl: positiveInt(process.env.INSIGHTS_IP_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/**
  * Number of reverse proxy hops in front of the app, used for `trust proxy`.
  *
  * The rate limiter keys on the client IP, so this must match the real

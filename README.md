@@ -33,10 +33,13 @@ src/
 │   ├── communities.controller.ts
 │   ├── communities.service.ts
 │   └── communities.module.ts
-├── posts/                # Gerenciamento de posts
+├── posts/                # Gerenciamento de posts e analytics
 │   ├── dto/
 │   ├── posts.controller.ts
 │   ├── posts.service.ts
+│   ├── insights.controller.ts
+│   ├── insights.service.ts
+│   ├── insights.constants.ts
 │   └── posts.module.ts
 ├── comments/             # Gerenciamento de comentários
 │   ├── dto/
@@ -113,6 +116,8 @@ src/
 - `POST /posts/:id/unpin` - Desafixar post (autenticado)
 - `POST /posts/:id/lock` - Bloquear post (autenticado)
 - `POST /posts/:id/unlock` - Desbloquear post (autenticado)
+- `POST /posts/:id/view` - Registrar uma visualização do post
+- `GET /posts/:id/insights` - Alcance e engajamento do post (autor ou moderador, autenticado)
 
 ### Comentários (`/comments`)
 - `POST /comments` - Criar comentário (autenticado)
@@ -182,6 +187,58 @@ Exemplo: `GET /posts?sortBy=top&time=month` retorna os posts mais votados do
 mês. O filtro é aplicado tanto na busca quanto na contagem, então `total` e
 `totalPages` refletem sempre a mesma janela.
 
+### Detalhamento do post (insights)
+
+`GET /posts/:id/insights` devolve o painel de analytics de um post: alcance
+(total de visualizações, views das últimas 24h), a série horária das views,
+o breakdown por país e o engajamento. Quem pode ver é o **autor do post** ou um
+**moderador/owner da comunidade** — o mesmo público das ações de moderação,
+porque analytics que revelam quem leu um post são tão sensíveis quanto a
+capacidade de removê-lo.
+
+```
+{
+  "postId": 1,
+  "reach": { "views": 3110, "viewsLast24h": 16, "hoursTracked": 48 },
+  "hourlyViews": [{ "bucketStart": "...", "hour": 1, "views": 35 }],
+  "countries": {
+    "top": [{ "countryCode": "US", "views": 1020, "percentage": 32.8 }],
+    "other": { "countryCode": "XX", "views": 1673, "percentage": 53.9 }
+  },
+  "engagement": {
+    "upvotes": 30, "downvotes": 0, "upvoteRatio": 100,
+    "comments": 0, "shares": 10, "reposts": 0, "awards": 0
+  }
+}
+```
+
+Alguns detalhes do contrato:
+
+- `hourlyViews` é **denso**: sempre um item por hora da janela, inclusive as
+  horas com zero. Uma série esparsa obrigaria o cliente a adivinhar quais horas
+  estão faltando.
+- A janela é ancorada em `createdAt`, não em "agora", e nunca passa de 48
+  horas. Um post com dez minutos de vida mostra só as horas que já
+  aconteceram, sem cortar o gráfico com as zero.
+- `countries.other` é calculado a partir de `reach.views` menos o topo, e não
+  somando as linhas restantes, para que as porcentagens listadas fechem com o
+  total mesmo que o rollup esteja incompleto.
+- `engagement.upvoteRatio` é `null` quando ninguém votou. `0%` significaria
+  "todo mundo votou contra", que é uma afirmação bem diferente de "ainda não
+  houve votos".
+
+A visualização é registrada por `POST /posts/:id/view`, e não dentro de
+`GET /posts/:id`: um feed que desenha dez cards reportaria dez views a cada
+rolagem, o que mediria rolagem, não alcance. Repetidas visitas do mesmo
+visitante dentro de uma janela de 30 minutos não contam de novo, para que
+recarregar a página não infle os próprios números.
+
+O visitante é identificado por um hash do id de usuário (quando autenticado) ou
+do IP, nunca pelo valor em si: a tabela precisa de uma chave estável para a
+deduplicação, mas armazenar o valor bruto transformaria a origem do rollup em
+uma lista de leitores. O país vem do header `x-country-code` quando um proxy de
+borda o fornece, e cai para `XX` quando não vem.
+
 ### Rate limiting
 
 Todos os limites são lidos do ambiente e possuem um padrão seguro, portanto
@@ -199,6 +256,8 @@ não é preciso definir nenhum deles para rodar o projeto.
 | `CHAT_MESSAGE_IP_RATE_LIMIT_MAX` | 60 / 60s | `POST /chats/:id/messages`, por IP |
 | `CHAT_MESSAGE_RATE_LIMIT_MAX` | 20 / 60s | `POST /chats/:id/messages`, por usuário |
 | `USER_RATE_LIMIT_MAX` | 200 / 60s | Fallback do limite por usuário |
+| `POST_VIEW_IP_RATE_LIMIT_MAX` | 120 / 60s | `POST /posts/:id/view`, por IP |
+| `INSIGHTS_IP_RATE_LIMIT_MAX` | 30 / 60s | `GET /posts/:id/insights`, por IP |
 | `TRUST_PROXY_HOPS` | 1 | Buffers de proxy à frente da app |
 
 Endpoints de chat têm dois orçamentos independentes: um por IP (via
@@ -275,6 +334,7 @@ Authorization: Bearer <access_token>
 - ✅ Upload e gerenciamento de mídia
 - ✅ Sistema de roles (MEMBER, MODERATOR, OWNER)
 - ✅ Chat 1:1 com mensagens, sem conversas duplicadas e sem acesso de terceiros
+- ✅ Detalhamento de post: alcance, views por hora, países e engajamento
 - ✅ Rate limiting por IP e por usuário autenticado
 - ✅ Paginação em todas as listagens
 - ✅ Validação de dados com class-validator
