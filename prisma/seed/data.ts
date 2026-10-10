@@ -8,7 +8,7 @@
  * Records reference each other by natural keys (username, community name, post
  * key) instead of database IDs; the seed runner resolves the IDs at runtime.
  */
-import { CommunityRole, PostType } from '../../src/generated/prisma/enums';
+import { CommunityRole, PostType } from '@prisma/client';
 
 export const MEDIA_BASE_URL = 'https://media.nexa.example.com';
 
@@ -76,6 +76,32 @@ export interface SeedRefreshToken {
   label: string;
   expiresInHours: number;
   revoked?: boolean;
+}
+
+/**
+ * Reach profile of a post, used to generate a plausible analytics history.
+ *
+ * Only posts that need an insights panel have an entry; the rest simply have
+ * no views, which is a valid state the UI has to render anyway.
+ */
+export interface SeedPostInsights {
+  /** `key` of the post this profile belongs to. */
+  postKey: string;
+  /**
+   * Views accumulated in the first hour after publication. Later hours are
+   * derived from it, so this is the knob that sets the scale of the chart.
+   */
+  firstHourViews: number;
+  /**
+   * Share of traffic that decays away over time. Values below 1 keep a long
+   * tail; values above 1 would make an old post look like it is accelerating.
+   */
+  decay: number;
+  /** ISO 3166-1 alpha-2 code and its share of the post's views. */
+  countries: { code: string; share: number }[];
+  shares?: number;
+  reposts?: number;
+  awards?: number;
 }
 
 export const users: SeedUser[] = [
@@ -599,5 +625,74 @@ export const refreshTokens: SeedRefreshToken[] = [
     label: 'old-phone',
     expiresInHours: 24 * 2,
     revoked: true,
+  },
+];
+
+export const postInsights: SeedPostInsights[] = [
+  {
+    postKey: 'ts-satisfies',
+    firstHourViews: 63,
+    decay: 0.94,
+    countries: [
+      { code: 'US', share: 0.328 },
+      { code: 'BR', share: 0.07 },
+      { code: 'TH', share: 0.064 },
+      { code: 'DE', share: 0.041 },
+      { code: 'IN', share: 0.038 },
+      { code: 'GB', share: 0.031 },
+      { code: 'JP', share: 0.027 },
+    ],
+    shares: 18,
+    reposts: 4,
+  },
+  {
+    postKey: 'coffee-v60-recipe',
+    firstHourViews: 41,
+    decay: 0.9,
+    countries: [
+      { code: 'BR', share: 0.271 },
+      { code: 'US', share: 0.184 },
+      { code: 'PT', share: 0.052 },
+      { code: 'AR', share: 0.034 },
+    ],
+    shares: 11,
+    awards: 2,
+  },
+  {
+    postKey: 'trail-sunrise-video',
+    firstHourViews: 128,
+    decay: 0.86,
+    countries: [
+      { code: 'US', share: 0.412 },
+      { code: 'CA', share: 0.086 },
+      { code: 'DE', share: 0.061 },
+      { code: 'AU', share: 0.048 },
+    ],
+    shares: 64,
+    reposts: 22,
+    awards: 7,
+  },
+  {
+    postKey: 'gamedev-devlog-12',
+    firstHourViews: 27,
+    decay: 0.92,
+    countries: [
+      { code: 'GB', share: 0.152 },
+      { code: 'US', share: 0.144 },
+      { code: 'NL', share: 0.058 },
+      { code: 'PL', share: 0.041 },
+    ],
+    shares: 6,
+  },
+  {
+    postKey: 'ts-welcome',
+    firstHourViews: 220,
+    decay: 0.96,
+    countries: [
+      { code: 'US', share: 0.221 },
+      { code: 'IN', share: 0.163 },
+      { code: 'BR', share: 0.078 },
+      { code: 'ID', share: 0.052 },
+    ],
   },
 ];

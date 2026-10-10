@@ -56,3 +56,11 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e -- --runInBand
+        # O e2e sobe o AppModule inteiro. O EmailService já tolera chave
+        # ausente (modo "email desativado"), então o secret é opcional aqui:
+        # em PRs de fork `secrets` chega vazio e a suite precisa passar assim
+        # mesmo. Mantido para que um falho de envio de e-mail, se vier a
+        # aparecer em teste, apareça como falha de integração e não como
+        # "aplicação não sobe".
+        env:
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

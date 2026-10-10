@@ -10,19 +10,33 @@ interface EmailTemplate {
 
 @Injectable()
 export class EmailService {
-  private readonly resend: Resend;
+  /**
+   * Null when the key is not configured, which is the "email disabled" mode.
+   *
+   * Declared optional because `new Resend(undefined)` throws in the SDK, so
+   * the client must not be constructed at all when there is no key. The
+   * alternative, constructing it with a placeholder, would fail later on the
+   * first real send with a much less obvious error.
+   */
+  private readonly resend?: Resend;
   private readonly logger = new Logger(EmailService.name);
   private readonly fromEmail: string;
   private readonly appUrl: string;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
-    if (!apiKey) {
+
+    if (apiKey) {
+      this.resend = new Resend(apiKey);
+    } else {
+      // Not fatal: the app must boot without the key so that tests, local
+      // development and forks of this repo (which have no access to secrets)
+      // can run at all.
       this.logger.warn(
         'RESEND_API_KEY not configured, email sending will be disabled',
       );
     }
-    this.resend = new Resend(apiKey);
+
     this.fromEmail =
       this.configService.get<string>('EMAIL_FROM') || 'noreply@nexa.local';
     this.appUrl =
@@ -30,7 +44,10 @@ export class EmailService {
   }
 
   async sendEmail(to: string, template: EmailTemplate): Promise<boolean> {
-    if (!this.configService.get<string>('RESEND_API_KEY')) {
+    if (!this.resend) {
+      // Reported as sent so that registration and password reset are not
+      // blocked by a missing integration: the caller only needs to know the
+      // flow completed, and the real send is not something it can do.
       this.logger.debug(
         `Email sending disabled (no RESEND_API_KEY). Would send to ${to}: ${template.subject}`,
       );
