@@ -3,7 +3,9 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../common/email/email.service';
@@ -22,8 +24,12 @@ interface JwtPayload {
   email: string;
 }
 
+const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
@@ -285,15 +291,7 @@ export class AuthService {
         );
       });
 
-    const tokens = this.generateTokens(user.id, user.email);
-
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: await bcrypt.hash(tokens.refreshToken, 10),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      },
-    });
+    const tokens = await this.issueSession(user.id, user.email);
 
     return {
       ...tokens,
@@ -366,14 +364,103 @@ export class AuthService {
       );
     }
 
+    const tokens = await this.issueSession(user.id, user.email);
+
+    return {
+      ...tokens,
+      userId: user.id,
+      username: user.username,
+      email: user.email,
+    };
+  }
+
+  /**
+   * Exchanges a refresh token for a new access/refresh pair (rotation).
+   *
+   * The signature alone is not enough: the token must also exist in
+   * `refresh_tokens` and not be revoked, which is what makes logout, password
+   * reset and rotation actually invalidate it. Lookup is by SHA-256 of the
+   * token, a deterministic hash, so it can be found with an indexed equality
+   * query (a salted hash like bcrypt can only be compared, never searched).
+   *
+   * A token that is found but already revoked was used before, so either the
+   * legitimate client or an attacker holds a copy of an old token. We cannot
+   * tell which, so every session of the user is revoked and both must log in
+   * again.
+   */
+  async refreshToken(
+    refreshTokenDto: RefreshTokenDto,
+  ): Promise<AuthResponseDto> {
+    const { refreshToken } = refreshTokenDto;
+
+    let payload: JwtPayload;
+    try {
+      payload = this.jwtService.verify<JwtPayload>(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const stored = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: this.hashRefreshToken(refreshToken) },
+    });
+
+    if (!stored || stored.userId !== payload.sub) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (stored.revokedAt) {
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: stored.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      this.logger.warn(
+        `Refresh token reuse detected for user ${stored.userId}; all sessions revoked`,
+      );
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (stored.expiresAt < new Date()) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+    });
+
+    if (!user || !user.isActive) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (!user.isEmailVerified) {
+      throw new UnauthorizedException(
+        'Email not verified. Please check your inbox for the confirmation link.',
+      );
+    }
+
     const tokens = this.generateTokens(user.id, user.email);
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId: user.id,
-        tokenHash: await bcrypt.hash(tokens.refreshToken, 10),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      },
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional on `revokedAt: null` so that two concurrent refreshes
+      // with the same token cannot both succeed: only one of them flips the
+      // row, the other sees count 0 and is rejected.
+      const { count } = await tx.refreshToken.updateMany({
+        where: { id: stored.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      if (count === 0) {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+
+      await tx.refreshToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: this.hashRefreshToken(tokens.refreshToken),
+          expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+        },
+      });
     });
 
     return {
@@ -384,58 +471,34 @@ export class AuthService {
     };
   }
 
-  async refreshToken(
-    refreshTokenDto: RefreshTokenDto,
-  ): Promise<AuthResponseDto> {
-    const { refreshToken } = refreshTokenDto;
-
-    try {
-      const payload = this.jwtService.verify<JwtPayload>(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
-      });
-
-      const user = await this.prisma.user.findUnique({
-        where: { id: payload.sub },
-      });
-
-      if (!user || !user.isActive) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-
-      if (!user.isEmailVerified) {
-        throw new UnauthorizedException(
-          'Email not verified. Please check your inbox for the confirmation link.',
-        );
-      }
-
-      const tokens = this.generateTokens(user.id, user.email);
-
-      await this.prisma.refreshToken.updateMany({
-        where: {
-          userId: user.id,
-          tokenHash: await bcrypt.hash(refreshToken, 10),
-        },
-        data: {
-          tokenHash: await bcrypt.hash(tokens.refreshToken, 10),
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        },
-      });
-
-      return {
-        ...tokens,
-        userId: user.id,
-        username: user.username,
-        email: user.email,
-      };
-    } catch {
-      throw new UnauthorizedException('Invalid refresh token');
-    }
-  }
-
   async logout(userId: number): Promise<void> {
     await this.prisma.refreshToken.deleteMany({
       where: { userId },
     });
+  }
+
+  /** Signs a new token pair and persists the refresh token. */
+  private async issueSession(userId: number, email: string) {
+    const tokens = this.generateTokens(userId, email);
+
+    await this.prisma.refreshToken.create({
+      data: {
+        userId,
+        tokenHash: this.hashRefreshToken(tokens.refreshToken),
+        expiresAt: new Date(Date.now() + REFRESH_TOKEN_TTL_MS),
+      },
+    });
+
+    return tokens;
+  }
+
+  /**
+   * SHA-256 rather than bcrypt: the token is already 256+ bits of signed,
+   * unguessable data, so slow hashing adds nothing, and a deterministic
+   * hash is what allows looking the row up by value.
+   */
+  private hashRefreshToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
   }
 
   private generateTokens(userId: number, email: string) {
@@ -446,9 +509,13 @@ export class AuthService {
       expiresIn: '15m',
     });
 
+    // `jwtid` makes every refresh token unique. Without it, two logins of
+    // the same user within the same second would sign byte-identical tokens
+    // and collide on the unique `token_hash` column.
     const refreshToken = this.jwtService.sign(payload, {
       secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
       expiresIn: '7d',
+      jwtid: randomUUID(),
     });
 
     return { accessToken, refreshToken };

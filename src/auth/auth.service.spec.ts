@@ -9,6 +9,7 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../common/email/email.service';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'node:crypto';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -281,17 +282,28 @@ describe('AuthService', () => {
 
   describe('refreshToken', () => {
     const refreshTokenDto = { refreshToken: 'valid-refresh-token' };
+    const sha256 = (value: string) =>
+      createHash('sha256').update(value).digest('hex');
 
-    it('should refresh access token with valid refresh token', async () => {
+    beforeEach(() => {
       mockJwtService.verify.mockReturnValue({
         sub: 1,
         email: 'test@example.com',
       });
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue(
+        buildRefreshToken(),
+      );
       mockPrismaService.user.findUnique.mockResolvedValue(
         buildUser(passwordHash),
       );
       mockPrismaService.refreshToken.updateMany.mockResolvedValue({ count: 1 });
+      mockPrismaService.$transaction.mockImplementation(
+        (callback: (tx: typeof mockPrismaService) => Promise<unknown>) =>
+          callback(mockPrismaService),
+      );
+    });
 
+    it('should rotate: revoke the presented token and store the new one', async () => {
       const result = await service.refreshToken(refreshTokenDto);
 
       expect(result).toEqual({
@@ -305,17 +317,93 @@ describe('AuthService', () => {
         'valid-refresh-token',
         expect.any(Object),
       );
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { id: 1 },
+      expect(mockPrismaService.refreshToken.findUnique).toHaveBeenCalledWith({
+        where: { tokenHash: sha256('valid-refresh-token') },
       });
-      expect(mockPrismaService.refreshToken.updateMany).toHaveBeenCalled();
+      expect(mockPrismaService.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 1, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrismaService.refreshToken.create).toHaveBeenCalledWith({
+        data: {
+          userId: 1,
+          tokenHash: sha256('refresh-token'),
+          expiresAt: expect.any(Date),
+        },
+      });
+    });
+
+    it('should sign every refresh token with a unique jti', async () => {
+      await service.refreshToken(refreshTokenDto);
+
+      const refreshSignCall = mockJwtService.sign.mock.calls.find(
+        ([, options]) => (options as { expiresIn?: string }).expiresIn === '7d',
+      );
+
+      expect(refreshSignCall?.[1]).toEqual(
+        expect.objectContaining({ jwtid: expect.any(String) }),
+      );
+    });
+
+    it('should reject a validly signed token that is not stored', async () => {
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue(null);
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject a stored token that belongs to another user', async () => {
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue({
+        ...buildRefreshToken(),
+        userId: 2,
+      });
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should revoke every session of the user when a revoked token is reused', async () => {
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue({
+        ...buildRefreshToken(),
+        revokedAt: new Date(),
+      });
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 1, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject an expired stored token', async () => {
+      mockPrismaService.refreshToken.findUnique.mockResolvedValue({
+        ...buildRefreshToken(),
+        expiresAt: new Date(Date.now() - 1000),
+      });
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject when a concurrent refresh already rotated the token', async () => {
+      mockPrismaService.refreshToken.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockPrismaService.refreshToken.create).not.toHaveBeenCalled();
     });
 
     it('should throw UnauthorizedException if email not verified', async () => {
-      mockJwtService.verify.mockReturnValue({
-        sub: 1,
-        email: 'test@example.com',
-      });
       mockPrismaService.user.findUnique.mockResolvedValue(
         buildUser(passwordHash, { isEmailVerified: false }),
       );
@@ -333,10 +421,10 @@ describe('AuthService', () => {
       await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
         UnauthorizedException,
       );
+      expect(mockPrismaService.refreshToken.findUnique).not.toHaveBeenCalled();
     });
 
     it('should throw UnauthorizedException if user not found', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 1 });
       mockPrismaService.user.findUnique.mockResolvedValue(null);
 
       await expect(service.refreshToken(refreshTokenDto)).rejects.toThrow(
@@ -345,7 +433,6 @@ describe('AuthService', () => {
     });
 
     it('should throw UnauthorizedException if user is deactivated', async () => {
-      mockJwtService.verify.mockReturnValue({ sub: 1 });
       mockPrismaService.user.findUnique.mockResolvedValue({
         ...buildUser(passwordHash),
         isActive: false,
