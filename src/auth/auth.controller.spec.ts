@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import { GUARDS_METADATA } from '@nestjs/common/constants';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 describe('AuthController', () => {
   let controller: AuthController;
@@ -130,12 +132,21 @@ describe('AuthController', () => {
   });
 
   describe('logout', () => {
-    it('should forward the userId coming from the request body', async () => {
+    it('should forward the authenticated user id to the service', async () => {
       mockAuthService.logout.mockResolvedValue(undefined);
 
       await controller.logout(1);
 
       expect(mockAuthService.logout).toHaveBeenCalledWith(1);
+    });
+
+    it('should require a valid token', () => {
+      const guards = (Reflect.getMetadata(
+        GUARDS_METADATA,
+        (AuthController.prototype as unknown as Record<string, object>).logout,
+      ) ?? []) as unknown[];
+
+      expect(guards).toContain(JwtAuthGuard);
     });
   });
 

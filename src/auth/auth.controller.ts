@@ -6,8 +6,15 @@ import {
   HttpStatus,
   Get,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
@@ -18,6 +25,8 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { CurrentUser } from './decorators/current-user.decorator';
 import { AUTH_RATE_LIMIT } from '../common/config/rate-limit.config';
 import {
   PASSWORD_RESET_RATE_LIMIT,
@@ -75,9 +84,14 @@ export class AuthController {
 
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Logout user' })
   @ApiResponse({ status: 204, description: 'User successfully logged out' })
-  async logout(@Body('userId') userId: number): Promise<void> {
+  @ApiResponse({ status: 401, description: 'Missing or invalid access token' })
+  // The user comes from the verified access token, never from the request:
+  // revoking sessions is only allowed for the account that owns them.
+  async logout(@CurrentUser('id') userId: number): Promise<void> {
     return this.authService.logout(userId);
   }
 
