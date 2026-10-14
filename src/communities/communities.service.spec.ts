@@ -281,6 +281,21 @@ describe('CommunitiesService', () => {
       expect(mockPrismaService.communityMember.create).toHaveBeenCalled();
     });
 
+    it('should always join as MEMBER, never with an elevated role', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+      mockPrismaService.communityMember.create.mockResolvedValue(
+        mockMembership,
+      );
+      mockPrismaService.community.update.mockResolvedValue(mockCommunity);
+
+      await service.join(1, 1);
+
+      expect(mockPrismaService.communityMember.create).toHaveBeenCalledWith({
+        data: { communityId: 1, userId: 1, role: CommunityRole.MEMBER },
+      });
+    });
+
     it('should throw ForbiddenException for private communities', async () => {
       const privateCommunity = { ...mockCommunity, isPrivate: true };
 

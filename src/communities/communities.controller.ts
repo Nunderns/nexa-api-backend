@@ -21,7 +21,6 @@ import { CommunitiesService } from './communities.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
 import { CommunityResponseDto } from './dto/community-response.dto';
-import { JoinCommunityDto } from './dto/join-community.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -136,12 +135,8 @@ export class CommunitiesController {
   @ApiResponse({ status: 201, description: 'Successfully joined community' })
   @ApiResponse({ status: 403, description: 'Cannot join private community' })
   @ApiResponse({ status: 404, description: 'Community not found' })
-  async join(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: number,
-    @Body() joinCommunityDto?: JoinCommunityDto,
-  ) {
-    return this.communitiesService.join(+id, userId, joinCommunityDto);
+  async join(@Param('id') id: string, @CurrentUser('id') userId: number) {
+    return this.communitiesService.join(+id, userId);
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })

@@ -8,7 +8,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
 import { CommunityResponseDto } from './dto/community-response.dto';
-import { JoinCommunityDto } from './dto/join-community.dto';
 import { CommunityRole } from '@prisma/client';
 
 @Injectable()
@@ -168,7 +167,7 @@ export class CommunitiesService {
     });
   }
 
-  async join(id: number, userId: number, joinCommunityDto?: JoinCommunityDto) {
+  async join(id: number, userId: number) {
     const community = await this.prisma.community.findUnique({
       where: { id },
     });
@@ -203,7 +202,9 @@ export class CommunitiesService {
       data: {
         communityId: id,
         userId,
-        role: joinCommunityDto?.role || CommunityRole.MEMBER,
+        // Always MEMBER: the role is never taken from the client. Promotion
+        // goes through `updateMemberRole`, which only the owner can call.
+        role: CommunityRole.MEMBER,
       },
     });
 
