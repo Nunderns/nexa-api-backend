@@ -182,26 +182,12 @@ describe('CommunitiesController', () => {
   });
 
   describe('join', () => {
-    it('should forward the optional join payload when present', async () => {
-      const joinCommunityDto = { role: CommunityRole.MODERATOR };
-
-      mockCommunitiesService.join.mockResolvedValue({ id: 1 });
-
-      await controller.join('1', 2, joinCommunityDto);
-
-      expect(mockCommunitiesService.join).toHaveBeenCalledWith(
-        1,
-        2,
-        joinCommunityDto,
-      );
-    });
-
-    it('should forward undefined when no body is sent', async () => {
+    it('should forward only the id and the current user id', async () => {
       mockCommunitiesService.join.mockResolvedValue({ id: 1 });
 
       await controller.join('1', 2);
 
-      expect(mockCommunitiesService.join).toHaveBeenCalledWith(1, 2, undefined);
+      expect(mockCommunitiesService.join).toHaveBeenCalledWith(1, 2);
     });
   });
 
