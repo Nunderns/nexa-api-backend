@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+
+set -e
+
+echo "🔧 Normalizing line endings to LF..."
+git add --renormalize .
+
+echo "🔍 Running lint..."
+npm run lint
+
+echo "✨ Running format..."
+npm run format
+
+echo "📦 Updating staged files after formatting..."
+git add --renormalize .
+
+echo "🧪 Running tests..."
+npm run test
+
+echo "✅ Pre-commit checks passed."

@@ -11,11 +11,12 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
-import { PrismaClient } from '../../src/generated/prisma/client';
-import { CommunityRole } from '../../src/generated/prisma/enums';
+import { PrismaClient } from '@prisma/client';
+import { CommunityRole } from '@prisma/client';
 import {
   communities,
   MEDIA_BASE_URL,
+  postInsights,
   posts,
   refreshTokens,
   SeedComment,
@@ -34,6 +35,13 @@ import {
 const DEFAULT_PASSWORD = 'NexaDev#2026';
 const BCRYPT_ROUNDS = 10;
 
+/**
+ * Matches `INSIGHTS_CHART_HOURS` in the API. Duplicated rather than imported
+ * because the seed runs outside `src/` and importing application code here
+ * would make `npm run seed` depend on the Nest build being current.
+ */
+const INSIGHTS_CHART_HOURS = 48;
+
 type IdMap = Map<string, number>;
 
 interface SeedContext {
@@ -44,6 +52,8 @@ interface SeedContext {
   postIds: IdMap;
   commentIds: number[];
 }
+
+const HOUR_MS = 60 * 60 * 1000;
 
 function requireId(map: IdMap, key: string, kind: string): number {
   const id = map.get(key);
@@ -367,6 +377,93 @@ async function seedRefreshTokens(ctx: SeedContext): Promise<void> {
 }
 
 /**
+ * Builds an hourly view history from a post's reach profile.
+ *
+ * The shape is a decaying curve: the first hour sets the scale and every later
+ * hour is the previous one times `decay`, with a small deterministic jitter so
+ * the chart does not look like a smooth exponential. Traffic is also spread
+ * across countries by the profile's shares, which is what makes the country
+ * breakdown add up to the post's total.
+ *
+ * One hour per bucket, matching what `InsightsService.recordView` writes, so a
+ * seeded post and a live one are indistinguishable to the insights endpoint.
+ */
+async function seedPostInsights(ctx: SeedContext): Promise<void> {
+  for (const profile of postInsights) {
+    const postId = requireId(ctx.postIds, profile.postKey, 'post');
+    const post = await ctx.prisma.post.findUnique({
+      where: { id: postId },
+      select: { createdAt: true },
+    });
+
+    if (!post) {
+      continue;
+    }
+
+    const hoursElapsed = Math.max(
+      1,
+      Math.floor((ctx.now.getTime() - post.createdAt.getTime()) / HOUR_MS),
+    );
+    // The insights chart only ever shows the first 48 hours, so seeding more
+    // than that would write rows no endpoint can read.
+    const hours = Math.min(hoursElapsed, INSIGHTS_CHART_HOURS);
+
+    const random = createRandom(seedFromString(`insights:${profile.postKey}`));
+    const buckets: {
+      bucketStart: Date;
+      countryCode: string;
+      views: number;
+    }[] = [];
+
+    let hourly = profile.firstHourViews;
+
+    for (let hour = 0; hour < hours; hour += 1) {
+      const jitter = 0.6 + random() * 0.8;
+      const views = Math.max(0, Math.round(hourly * jitter));
+      const bucketStart = new Date(post.createdAt.getTime() + hour * HOUR_MS);
+      // The migration's check constraint rejects an un-truncated bucket, and
+      // an un-truncated value would also create a second row for the same hour.
+      bucketStart.setMinutes(0, 0, 0);
+
+      for (const country of profile.countries) {
+        const countryViews = Math.round(views * country.share);
+        if (countryViews === 0) {
+          continue;
+        }
+
+        buckets.push({
+          bucketStart,
+          countryCode: country.code,
+          views: countryViews,
+        });
+      }
+
+      hourly *= profile.decay;
+    }
+
+    await ctx.prisma.postViewStat.createMany({
+      data: buckets.map((bucket) => ({ postId, ...bucket })),
+      skipDuplicates: true,
+    });
+
+    // Summed from the rows that were actually written rather than from the
+    // curve, so `viewCount` and the chart cannot disagree: the country
+    // breakdown derives its "other" bucket from this total.
+    const totalViews = buckets.reduce((sum, bucket) => sum + bucket.views, 0);
+
+    await ctx.prisma.post.update({
+      where: { id: postId },
+      data: {
+        viewCount: totalViews,
+        shareCount: profile.shares ?? 0,
+        repostCount: profile.reposts ?? 0,
+        awardCount: profile.awards ?? 0,
+      },
+    });
+  }
+}
+
+/**
  * Recomputes the denormalized counters (scores, vote/comment/member/post counts,
  * karma) from the actual rows, scoped to the seeded records.
  */
@@ -400,7 +497,11 @@ async function syncCounters(ctx: SeedContext): Promise<void> {
       comment_count = (
         SELECT COUNT(*)::int FROM comments c
         WHERE c.post_id = p.id AND c.is_deleted = false
-      )
+      ),
+      view_count = COALESCE((
+        SELECT SUM(s.views)::int FROM post_view_stats s
+        WHERE s.post_id = p.id
+      ), 0)
     FROM (
       SELECT p2.id,
         COUNT(pv.*) FILTER (WHERE pv.vote > 0)::int AS up,
@@ -444,6 +545,7 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     commentVotes,
     media,
     tokens,
+    viewStats,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.community.count(),
@@ -454,6 +556,7 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     prisma.commentVote.count(),
     prisma.media.count(),
     prisma.refreshToken.count(),
+    prisma.postViewStat.count(),
   ]);
 
   console.table({
@@ -466,6 +569,7 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     comment_votes: commentVotes,
     media,
     refresh_tokens: tokens,
+    post_view_stats: viewStats,
   });
 }
 
@@ -496,6 +600,7 @@ async function main(): Promise<void> {
     ['posts, comments & media', seedPosts],
     ['votes', seedVotes],
     ['refresh tokens', seedRefreshTokens],
+    ['post reach history', seedPostInsights],
     ['denormalized counters', syncCounters],
   ];
 

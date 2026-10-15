@@ -5,10 +5,7 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider            = "prisma-client"
-  output              = "../src/generated/prisma"
-  moduleFormat        = "cjs"
-  importFileExtension = ""
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -29,27 +26,34 @@ enum PostType {
 }
 
 model User {
-  id           Int    @id @default(autoincrement())
-  username     String @unique @db.VarChar(30)
-  email        String @unique @db.VarChar(255)
-  passwordHash String @map("password_hash") @db.Text
-  displayName  String @map("display_name") @db.VarChar(100)
-  bio          String? @db.Text
-  avatarUrl    String? @map("avatar_url") @db.Text
-  karma        Int    @default(0)
-  isActive     Boolean @map("is_active") @default(true)
-  createdAt    DateTime @map("created_at") @default(now()) @db.Timestamptz
-  updatedAt    DateTime @map("updated_at") @default(now()) @db.Timestamptz
+  id                      Int       @id @default(autoincrement())
+  username                String    @unique @db.VarChar(30)
+  email                   String    @unique @db.VarChar(255)
+  passwordHash            String    @map("password_hash") @db.Text
+  displayName             String    @map("display_name") @db.VarChar(100)
+  bio                     String?   @db.Text
+  avatarUrl               String?   @map("avatar_url") @db.Text
+  karma                   Int       @default(0)
+  isActive                Boolean   @map("is_active") @default(true)
+  isEmailVerified         Boolean   @map("is_email_verified") @default(false)
+  emailVerificationToken  String?   @map("email_verification_token") @unique @db.Text
+  emailVerificationExpires DateTime? @map("email_verification_expires") @db.Timestamptz
+  createdAt               DateTime  @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt               DateTime  @map("updated_at") @default(now()) @db.Timestamptz
 
   // Relations
-  communitiesCreated  Community[]         @relation("CommunityCreator")
-  communityMemberships CommunityMember[]
-  posts               Post[]
-  comments            Comment[]
-  postVotes           PostVote[]
-  commentVotes        CommentVote[]
-  refreshTokens       RefreshToken[]
-  media               Media[]
+  communitiesCreated      Community[]            @relation("CommunityCreator")
+  communityMemberships    CommunityMember[]
+  posts                   Post[]
+  comments                Comment[]
+  postVotes               PostVote[]
+  commentVotes            CommentVote[]
+  refreshTokens           RefreshToken[]
+  passwordResetTokens     PasswordResetToken[]
+  media                   Media[]
+  chatsAsFirstParticipant Chat[]                 @relation("ChatParticipantOne")
+  chatsAsSecondParticipant Chat[]                @relation("ChatParticipantTwo")
+  sentMessages            Message[]
 
   @@map("users")
 }
@@ -103,6 +107,13 @@ model Post {
   upvoteCount   Int      @map("upvote_count") @default(0)
   downvoteCount Int      @map("downvote_count") @default(0)
   commentCount  Int      @map("comment_count") @default(0)
+  // Reach counters. Denormalized for the same reason `commentCount` is: the
+  // post detail page reads them on every load, and counting rows per request
+  // would turn a cheap read into an aggregate scan.
+  viewCount     Int      @map("view_count") @default(0)
+  shareCount    Int      @map("share_count") @default(0)
+  repostCount   Int      @map("repost_count") @default(0)
+  awardCount    Int      @map("award_count") @default(0)
   isPinned      Boolean  @map("is_pinned") @default(false)
   isLocked      Boolean  @map("is_locked") @default(false)
   isDeleted     Boolean  @map("is_deleted") @default(false)
@@ -115,8 +126,66 @@ model Post {
   votes     PostVote[]
   comments  Comment[]
   media     Media[]
+  views     PostView[]
+  viewStats PostViewStat[]
 
+  // Feeds sort by `score`, which leans on the vote columns, and the insights
+  // endpoint reads the reach counters, so both column groups are hot.
+  @@index([communityId, isDeleted, score])
+  @@index([authorId, isDeleted])
+  @@index([createdAt])
   @@map("posts")
+}
+
+/// One recorded visit to a post.
+///
+/// Raw events are kept because "who saw this post and when" cannot be
+/// recovered from the hourly rollup, and the rollup cannot be corrected
+/// retroactively if the deduplication rule changes. Growth is bounded by the
+/// per-IP/per-user rate limits on `POST /posts/:id/view`, and rows can be
+/// pruned by age without affecting the totals.
+model PostView {
+  id        Int      @id @default(autoincrement())
+  postId    Int      @map("post_id")
+  /// Stable hash of the visitor (user id when signed in, client IP otherwise).
+  /// Hashed rather than stored raw so the table cannot be used to re-identify
+  /// anonymous readers, while still allowing per-visitor deduplication.
+  viewerKey String   @map("viewer_key") @db.VarChar(64)
+  /// ISO 3166-1 alpha-2, or `XX` when the country cannot be determined.
+  countryCode String @map("country_code") @default("XX") @db.VarChar(2)
+  viewedAt  DateTime @default(now()) @map("viewed_at") @db.Timestamptz
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// Serves the per-visitor dedupe window: "has this visitor already been
+  /// counted for this post since <cutoff>".
+  @@index([postId, viewerKey, viewedAt])
+  /// Serves the hourly rollup read and any time-range filter.
+  @@index([postId, viewedAt])
+  @@map("post_views")
+}
+
+/// Hourly pre-aggregated views for a post, split by country.
+///
+/// The insights screen reads 48 buckets on every load and groups by country;
+/// deriving both from `PostView` would scan every raw row the post has ever
+/// accumulated. This table is written on the same path that appends the raw
+/// event, so the two can only drift if the write is interrupted.
+model PostViewStat {
+  postId      Int      @map("post_id")
+  /// Start of the hour, always minute/second/millisecond zero.
+  bucketStart DateTime @map("bucket_start") @db.Timestamptz
+  /// ISO 3166-1 alpha-2, or `XX` when the country cannot be determined.
+  countryCode String   @map("country_code") @db.VarChar(2)
+  views       Int      @default(0)
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  /// One row per (post, hour, country), which also covers "views of this post
+  /// over time" and "views of this post by country" as index scans.
+  @@id([postId, bucketStart, countryCode])
+  @@index([postId, bucketStart])
+  @@map("post_view_stats")
 }
 
 model Comment {
@@ -173,6 +242,58 @@ model CommentVote {
   @@map("comment_votes")
 }
 
+/// One-to-one conversation between two users.
+///
+/// The two participants are stored in a canonical order
+/// (`user_one_id < user_two_id`, enforced by a database check constraint) so
+/// that A -> B and B -> A always resolve to the same row. The matching unique
+/// constraint is what actually prevents duplicates under concurrent requests.
+model Chat {
+  id Int @id @default(autoincrement())
+  /// Always the lower user id of the pair.
+  userOneId Int @map("user_one_id")
+  /// Always the higher user id of the pair.
+  userTwoId Int @map("user_two_id")
+  /// Timestamp of the most recent message, denormalized so listing a user's
+  /// chats can be ordered by recent activity without touching `messages`.
+  lastMessageAt DateTime? @map("last_message_at") @db.Timestamptz
+  createdAt     DateTime  @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt     DateTime  @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  userOne  User      @relation("ChatParticipantOne", fields: [userOneId], references: [id], onDelete: Cascade)
+  userTwo  User      @relation("ChatParticipantTwo", fields: [userTwoId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@unique([userOneId, userTwoId])
+  @@index([userOneId, lastMessageAt])
+  @@index([userTwoId, lastMessageAt])
+  @@map("chats")
+}
+
+/// A single message inside a one-to-one conversation.
+model Message {
+  id       Int @id @default(autoincrement())
+  chatId   Int @map("chat_id")
+  senderId Int @map("sender_id")
+  /// Bounded at the database level as well, mirroring the DTO max length, so
+  /// an oversized message cannot be persisted by any other code path.
+  content   String   @db.VarChar(2000)
+  createdAt DateTime @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt DateTime @map("updated_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  // Covers "messages of a chat, oldest first" and "messages of a chat, newest
+  // first", which are the two directions the API reads them in.
+  @@index([chatId, id])
+  @@index([chatId, createdAt])
+  @@index([senderId])
+  @@map("messages")
+}
+
 model RefreshToken {
   id         Int      @id @default(autoincrement())
   userId     Int      @map("user_id")
@@ -185,6 +306,22 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id         Int      @id @default(autoincrement())
+  userId     Int      @map("user_id")
+  codeHash   String   @map("code_hash") @db.Text
+  expiresAt  DateTime @map("expires_at") @db.Timestamptz
+  usedAt     DateTime? @map("used_at") @db.Timestamptz
+  attempts   Int      @default(0)
+  createdAt  DateTime @map("created_at") @default(now()) @db.Timestamptz
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 model Media {
