@@ -4,8 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CommunityRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { Env } from '../common/config/env.validation';
 import {
   INSIGHTS_CHART_HOURS,
   INSIGHTS_TOP_COUNTRIES,
@@ -22,7 +24,14 @@ const HOUR_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class InsightsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly viewerKeySecret: string;
+
+  constructor(
+    private prisma: PrismaService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.viewerKeySecret = config.get('JWT_SECRET', { infer: true });
+  }
 
   /**
    * Records a visit to a post.
@@ -308,7 +317,7 @@ export class InsightsService {
    * the rollup's source data into a list of readers.
    */
   private buildViewerKey(viewer: { userId?: number; ip?: string }): string {
-    const secret = process.env.JWT_SECRET ?? 'nexa-viewer-key';
+    const secret = this.viewerKeySecret;
 
     if (viewer.userId) {
       return createHmac('sha256', secret)

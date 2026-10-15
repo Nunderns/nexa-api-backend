@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InsightsController } from './insights.controller';
 import { InsightsService } from './insights.service';
@@ -149,6 +150,10 @@ describe('InsightsService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: ConfigService,
+          useValue: { get: () => 'test-viewer-key-secret' },
         },
       ],
     }).compile();

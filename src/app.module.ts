@@ -12,14 +12,12 @@ import { VotesModule } from './votes/votes.module';
 import { MediaModule } from './media/media.module';
 import { ChatModule } from './chat/chat.module';
 import { GLOBAL_RATE_LIMIT } from './common/config/rate-limit.config';
+import { validateEnv } from './common/config/env.validation';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ThrottlerModule.forRoot({
-      // Without this the guard reuses the library default message,
-      // 'ThrottlerException: Too Many Requests', which leaks an internal
-      // class name to API clients.
       errorMessage: 'Too Many Requests',
       throttlers: [
         {
