@@ -3,7 +3,11 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { InsightsController } from './insights.controller';
 import { InsightsService } from './insights.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('InsightsController', () => {
   let controller: InsightsController;
@@ -38,7 +42,7 @@ describe('InsightsController', () => {
   describe('routes', () => {
     it('should expose the insights endpoints under /posts', () => {
       expect(collectRoutes(InsightsController)).toEqual(
-        ['POST /posts/:id/view', 'GET /posts/:id/insights'].sort(),
+        ['POST /posts/:id/view', 'GET /posts/:id/insights'].sort(compareRoutes),
       );
     });
 

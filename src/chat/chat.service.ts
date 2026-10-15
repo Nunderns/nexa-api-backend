@@ -195,7 +195,7 @@ export class ChatService {
     // outside would leave a window where the chat is deleted between the
     // check and the insert, and the insert would then fail with a raw
     // database error instead of a 404.
-    return this.prisma.$transaction(async (tx) => {
+    return await this.prisma.$transaction(async (tx) => {
       const chat = await this.findChatForParticipant(chatId, currentUserId, tx);
 
       if (!chat) {

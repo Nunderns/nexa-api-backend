@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { VotesController } from './votes.controller';
 import { VotesService } from './votes.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('VotesController', () => {
   let controller: VotesController;
@@ -43,7 +47,7 @@ describe('VotesController', () => {
           'GET /votes/post/:postId',
           'POST /votes/comment/:commentId',
           'GET /votes/comment/:commentId',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

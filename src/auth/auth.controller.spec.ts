@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
@@ -61,7 +65,7 @@ describe('AuthController', () => {
           'POST /auth/register',
           'POST /auth/reset-password',
           'POST /auth/verify-reset-code',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

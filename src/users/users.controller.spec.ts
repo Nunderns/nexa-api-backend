@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -61,7 +65,7 @@ describe('UsersController', () => {
           'GET /users/:id/comments',
           'GET /users/:id/upvoted',
           'GET /users/:id/downvoted',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

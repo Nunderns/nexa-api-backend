@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('MediaController', () => {
   let controller: MediaController;
@@ -53,7 +57,7 @@ describe('MediaController', () => {
           'GET /media/comment/:commentId',
           'GET /media/user/:userId',
           'DELETE /media/:id',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

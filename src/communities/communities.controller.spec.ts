@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { CommunityRole } from '@prisma/client';
 import { CommunitiesController } from './communities.controller';
 import { CommunitiesService } from './communities.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('CommunitiesController', () => {
   let controller: CommunitiesController;
@@ -66,7 +70,7 @@ describe('CommunitiesController', () => {
           'GET /communities/:id/members',
           'PUT /communities/:id/members/:userId/role',
           'POST /communities/:id/members/:userId/ban',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 
