@@ -21,6 +21,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('users')
@@ -38,20 +39,33 @@ export class UsersController {
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get user by ID',
+    description: 'Includes `email` only when the caller is that user.',
+  })
   @ApiResponse({
     status: 200,
     description: 'User retrieved successfully',
     type: UserResponseDto,
   })
   @ApiResponse({ status: 404, description: 'User not found' })
-  async findOne(@Param('id') id: string): Promise<UserResponseDto> {
-    return this.usersService.findOne(+id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser('id') viewerId?: number,
+  ): Promise<UserResponseDto> {
+    return this.usersService.findOne(+id, viewerId);
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('username/:username')
-  @ApiOperation({ summary: 'Get user by username' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get user by username',
+    description: 'Includes `email` only when the caller is that user.',
+  })
   @ApiResponse({
     status: 200,
     description: 'User retrieved successfully',
@@ -60,8 +74,9 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async findByUsername(
     @Param('username') username: string,
+    @CurrentUser('id') viewerId?: number,
   ): Promise<UserResponseDto> {
-    return this.usersService.findByUsername(username);
+    return this.usersService.findByUsername(username, viewerId);
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })

@@ -7,8 +7,12 @@ export class UserResponseDto {
   @ApiProperty({ example: 'johndoe' })
   username: string;
 
-  @ApiProperty({ example: 'john@example.com' })
-  email: string;
+  @ApiProperty({
+    example: 'john@example.com',
+    required: false,
+    description: 'Only present when the caller is this user.',
+  })
+  email?: string;
 
   @ApiProperty({ example: 'John Doe' })
   displayName: string;

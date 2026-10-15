@@ -7,6 +7,18 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 
+const PUBLIC_USER_FIELDS = {
+  id: true,
+  username: true,
+  displayName: true,
+  bio: true,
+  avatarUrl: true,
+  karma: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
@@ -18,18 +30,7 @@ export class UsersService {
       this.prisma.user.findMany({
         skip,
         take: limit,
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          displayName: true,
-          bio: true,
-          avatarUrl: true,
-          karma: true,
-          isActive: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+        select: PUBLIC_USER_FIELDS,
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.user.count(),
@@ -44,21 +45,10 @@ export class UsersService {
     };
   }
 
-  async findOne(id: number): Promise<UserResponseDto> {
+  async findOne(id: number, viewerId?: number): Promise<UserResponseDto> {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        bio: true,
-        avatarUrl: true,
-        karma: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: { ...PUBLIC_USER_FIELDS, email: id === viewerId },
     });
 
     if (!user) {
@@ -68,28 +58,23 @@ export class UsersService {
     return user;
   }
 
-  async findByUsername(username: string): Promise<UserResponseDto> {
+  async findByUsername(
+    username: string,
+    viewerId?: number,
+  ): Promise<UserResponseDto> {
+    // The id is only known after the lookup, so the email is read and then
+    // dropped for anyone but the owner.
     const user = await this.prisma.user.findUnique({
       where: { username },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        bio: true,
-        avatarUrl: true,
-        karma: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      select: { ...PUBLIC_USER_FIELDS, email: true },
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    const { email, ...publicUser } = user;
+    return user.id === viewerId ? { ...publicUser, email } : publicUser;
   }
 
   async update(
@@ -104,18 +89,8 @@ export class UsersService {
     const user = await this.prisma.user.update({
       where: { id },
       data: updateUserDto,
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        displayName: true,
-        bio: true,
-        avatarUrl: true,
-        karma: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+      // Only the owner can get here, so the email is theirs to see.
+      select: { ...PUBLIC_USER_FIELDS, email: true },
     });
 
     return user;
