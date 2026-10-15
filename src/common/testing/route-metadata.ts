@@ -1,14 +1,22 @@
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 
-/**
- * Helpers to read the routing metadata NestJS registers on controllers, so specs
- * can assert that every endpoint is exposed on the path/method it should be.
- */
 type ControllerClass = abstract new (...args: never[]) => object;
 
-/** Strips the leading/trailing slashes NestJS keeps on the metadata values. */
-const trimSlashes = (path: string): string => path.replace(/^\/+|\/+$/g, '');
+const trimSlashes = (path: string): string => {
+  let start = 0;
+  let end = path.length;
+
+  while (start < end && path[start] === '/') {
+    start++;
+  }
+
+  while (end > start && path[end - 1] === '/') {
+    end--;
+  }
+
+  return path.slice(start, end);
+};
 
 const buildRoute = (
   controller: ControllerClass,
@@ -41,7 +49,6 @@ const buildRoute = (
   return `${RequestMethod[method]} /${fullPath}`;
 };
 
-/** Returns the route of a single handler, e.g. `GET /users/:id/posts`. */
 export function routeOf(
   controller: ControllerClass,
   methodName: string,
@@ -49,11 +56,13 @@ export function routeOf(
   return buildRoute(controller, methodName);
 }
 
-/** Returns every route of a controller as sorted `METHOD /path` strings. */
+export const compareRoutes = (a: string, b: string): number =>
+  a.localeCompare(b, 'en');
+
 export function collectRoutes(controller: ControllerClass): string[] {
   return Object.getOwnPropertyNames(controller.prototype)
     .filter((name) => name !== 'constructor')
     .map((name) => buildRoute(controller, name))
     .filter((route): route is string => route !== null)
-    .sort();
+    .sort(compareRoutes);
 }

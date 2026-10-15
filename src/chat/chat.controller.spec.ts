@@ -4,7 +4,11 @@ import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UserThrottleGuard } from '../common/guards/user-throttle.guard';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import {
   CHAT_CREATE_IP_RATE_LIMIT,
@@ -74,7 +78,7 @@ describe('ChatController', () => {
           'GET /chats/:chatId',
           'POST /chats/:chatId/messages',
           'GET /chats/:chatId/messages',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

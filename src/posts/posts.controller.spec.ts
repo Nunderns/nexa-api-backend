@@ -2,7 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PostType } from '@prisma/client';
 import { PostsController } from './posts.controller';
 import { PostsService } from './posts.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('PostsController', () => {
   let controller: PostsController;
@@ -64,7 +68,7 @@ describe('PostsController', () => {
           'POST /posts/:id/unpin',
           'POST /posts/:id/lock',
           'POST /posts/:id/unlock',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 

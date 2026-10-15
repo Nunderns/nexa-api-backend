@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { CommentsController } from './comments.controller';
 import { CommentsService } from './comments.service';
-import { collectRoutes, routeOf } from '../common/testing/route-metadata';
+import {
+  collectRoutes,
+  compareRoutes,
+  routeOf,
+} from '../common/testing/route-metadata';
 
 describe('CommentsController', () => {
   let controller: CommentsController;
@@ -57,7 +61,7 @@ describe('CommentsController', () => {
           'PUT /comments/:id',
           'DELETE /comments/:id',
           'GET /comments/user/:userId',
-        ].sort(),
+        ].sort(compareRoutes),
       );
     });
 
