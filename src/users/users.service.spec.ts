@@ -82,6 +82,17 @@ describe('UsersService', () => {
         orderBy: { createdAt: 'desc' },
       });
     });
+
+    it('should never select email', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([]);
+      mockPrismaService.user.count.mockResolvedValue(0);
+
+      await service.findAll(1, 20);
+
+      const { select } = mockPrismaService.user.findMany.mock.calls[0][0];
+      expect(select).not.toHaveProperty('email');
+      expect(select).toHaveProperty('username', true);
+    });
   });
 
   describe('findOne', () => {
@@ -97,6 +108,19 @@ describe('UsersService', () => {
       });
     });
 
+    it.each([
+      ['an anonymous viewer', undefined, false],
+      ['another user', 2, false],
+      ['the user themselves', 1, true],
+    ])('should select email for %s: %p', async (_label, viewerId, expected) => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+      await service.findOne(1, viewerId);
+
+      const { select } = mockPrismaService.user.findUnique.mock.calls[0][0];
+      expect(select.email).toBe(expected);
+    });
+
     it('should throw NotFoundException if user not found', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
 
@@ -108,13 +132,25 @@ describe('UsersService', () => {
     it('should return a user by username', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
 
-      const result = await service.findByUsername('testuser');
+      const result = await service.findByUsername('testuser', 1);
 
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { username: 'testuser' },
         select: expect.any(Object),
       });
+    });
+
+    it.each([
+      ['an anonymous viewer', undefined],
+      ['another user', 2],
+    ])('should omit email for %s', async (_label, viewerId) => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+      const result = await service.findByUsername('testuser', viewerId);
+
+      expect(result).not.toHaveProperty('email');
+      expect(result).toHaveProperty('username', 'testuser');
     });
 
     it('should throw NotFoundException if user not found', async () => {

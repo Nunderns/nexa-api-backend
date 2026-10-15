@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { JwtService } from '@nestjs/jwt';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -7,11 +8,6 @@ import { PrismaService } from './../src/prisma/prisma.service';
 import { configureApp } from './../src/common/config/configure-app';
 import { PostType } from '@prisma/client';
 
-/**
- * HTTP level smoke tests. Prisma is replaced by a mock so the real database is
- * never touched: the goal here is to prove that the app boots, that routing,
- * pipes and the response envelope work end to end.
- */
 describe('App (e2e)', () => {
   let app: INestApplication<App>;
 
@@ -100,6 +96,80 @@ describe('App (e2e)', () => {
           message: 'User not found',
         }),
       );
+    });
+  });
+
+  describe('GET /users/:id email visibility', () => {
+    const jwtService = new JwtService({ secret: process.env.JWT_SECRET });
+    const tokenFor = (userId: number) =>
+      jwtService.sign({ sub: userId, email: `user${userId}@example.com` });
+
+    beforeEach(() => {
+      // Answers both the JwtStrategy lookup and the profile read, honouring
+      // `select` so the test sees exactly what the service asked for.
+      mockPrismaService.user.findUnique.mockImplementation(
+        ({
+          where,
+          select,
+        }: {
+          where: { id: number };
+          select: Record<string, boolean>;
+        }) => {
+          const row: Record<string, unknown> = {
+            id: where.id,
+            username: `user${where.id}`,
+            email: `user${where.id}@example.com`,
+            displayName: `User ${where.id}`,
+            karma: 0,
+            isActive: true,
+            isEmailVerified: true,
+          };
+          return Promise.resolve(
+            Object.fromEntries(
+              Object.entries(row).filter(([key]) => select[key]),
+            ),
+          );
+        },
+      );
+    });
+
+    it('should hide the email from anonymous visitors', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/users/1')
+        .expect(200);
+
+      expect(response.body.data).not.toHaveProperty('email');
+      expect(response.body.data).toHaveProperty('username', 'user1');
+    });
+
+    it('should hide the email from other signed-in users', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/users/1')
+        .set('Authorization', `Bearer ${tokenFor(2)}`)
+        .expect(200);
+
+      expect(response.body.data).not.toHaveProperty('email');
+    });
+
+    it('should show the email to the user themselves', async () => {
+      const response = await request(app.getHttpServer())
+        .get('/users/1')
+        .set('Authorization', `Bearer ${tokenFor(1)}`)
+        .expect(200);
+
+      expect(response.body.data).toHaveProperty('email', 'user1@example.com');
+    });
+
+    it('should answer 401 to an expired token so the client refreshes', async () => {
+      const expired = jwtService.sign(
+        { sub: 1, email: 'user1@example.com' },
+        { expiresIn: -10 },
+      );
+
+      await request(app.getHttpServer())
+        .get('/users/1')
+        .set('Authorization', `Bearer ${expired}`)
+        .expect(401);
     });
   });
 

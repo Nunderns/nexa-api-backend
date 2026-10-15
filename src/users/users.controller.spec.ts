@@ -104,13 +104,13 @@ describe('UsersController', () => {
   });
 
   describe('findOne', () => {
-    it('should convert the id param to a number', async () => {
+    it('should convert the id param to a number and pass the viewer', async () => {
       const user = { id: 1, username: 'testuser' };
       mockUsersService.findOne.mockResolvedValue(user);
 
-      const result = await controller.findOne('1');
+      const result = await controller.findOne('1', 7);
 
-      expect(mockUsersService.findOne).toHaveBeenCalledWith(1);
+      expect(mockUsersService.findOne).toHaveBeenCalledWith(1, 7);
       expect(result).toBe(user);
     });
   });
@@ -120,9 +120,12 @@ describe('UsersController', () => {
       const user = { id: 1, username: 'testuser' };
       mockUsersService.findByUsername.mockResolvedValue(user);
 
-      await controller.findByUsername('testuser');
+      await controller.findByUsername('testuser', undefined);
 
-      expect(mockUsersService.findByUsername).toHaveBeenCalledWith('testuser');
+      expect(mockUsersService.findByUsername).toHaveBeenCalledWith(
+        'testuser',
+        undefined,
+      );
     });
   });
 
