@@ -57,7 +57,7 @@ const USER_B = 2;
 const USER_C = 3;
 
 const jwtService = new JwtService({
-  secret: process.env.JWT_SECRET || 'access-secret',
+  secret: process.env.JWT_SECRET,
 });
 
 const tokenFor = (userId: number): string =>

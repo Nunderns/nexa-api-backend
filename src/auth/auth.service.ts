@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../common/email/email.service';
@@ -18,6 +19,7 @@ import { ConfirmEmailDto } from './dto/confirm-email.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { VerifyResetCodeDto } from './dto/verify-reset-code.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { Env } from '../common/config/env.validation';
 
 interface JwtPayload {
   sub: number;
@@ -29,12 +31,18 @@ const REFRESH_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  private readonly accessSecret: string;
+  private readonly refreshSecret: string;
 
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private emailService: EmailService,
-  ) {}
+    config: ConfigService<Env, true>,
+  ) {
+    this.accessSecret = config.get('JWT_SECRET', { infer: true });
+    this.refreshSecret = config.get('JWT_REFRESH_SECRET', { infer: true });
+  }
 
   private generateVerificationToken(): string {
     // Generate a secure random token (32 bytes = 256 bits)
@@ -67,25 +75,19 @@ export class AuthService {
   ): Promise<{ message: string }> {
     const { email } = forgotPasswordDto;
 
-    // Find user by email (for account enumeration protection, we don't reveal if user exists)
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
 
-    // Always return the same message for security (account enumeration protection)
     const genericMessage =
       'If an account with this email exists, a password reset code has been sent.';
 
     if (!user) {
       return { message: genericMessage };
     }
-
-    // Generate a secure 6-digit reset code
     const resetCode = this.generateResetCode();
     const codeHash = await bcrypt.hash(resetCode, 10);
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
-
-    // Invalidate any existing unused reset tokens for this user
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
     await this.prisma.passwordResetToken.updateMany({
       where: {
         userId: user.id,
@@ -93,10 +95,9 @@ export class AuthService {
       },
       data: {
         usedAt: new Date(),
+        expiresAt: new Date(),
       },
     });
-
-    // Create new password reset token
     await this.prisma.passwordResetToken.create({
       data: {
         userId: user.id,
@@ -104,8 +105,6 @@ export class AuthService {
         expiresAt,
       },
     });
-
-    // Send password reset email (don't await to avoid blocking)
     this.emailService
       .sendPasswordResetEmail(user.email, user.username, resetCode)
       .catch((error: Error) => {
@@ -121,8 +120,6 @@ export class AuthService {
     verifyResetCodeDto: VerifyResetCodeDto,
   ): Promise<{ resetToken: string }> {
     const { email, code } = verifyResetCodeDto;
-
-    // Find user by email
     const user = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -131,7 +128,6 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset code');
     }
 
-    // Find the latest unused reset token for this user
     const resetToken = await this.prisma.passwordResetToken.findFirst({
       where: {
         userId: user.id,
@@ -144,22 +140,18 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset code');
     }
 
-    // Check if code has expired
     if (resetToken.expiresAt < new Date()) {
       throw new BadRequestException('Reset code has expired');
     }
 
-    // Check attempts limit (max 5 attempts)
     if (resetToken.attempts >= 5) {
       throw new BadRequestException(
         'Too many failed attempts. Please request a new code.',
       );
     }
 
-    // Verify the code
     const isCodeValid = await bcrypt.compare(code, resetToken.codeHash);
 
-    // Increment attempts counter
     await this.prisma.passwordResetToken.update({
       where: { id: resetToken.id },
       data: { attempts: resetToken.attempts + 1 },
@@ -169,22 +161,19 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset code');
     }
 
-    // Generate a reset token for the password reset step
     const resetTokenValue = this.generateResetToken();
     const resetTokenHash = await bcrypt.hash(resetTokenValue, 10);
-    const resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    const resetTokenExpires = new Date(Date.now() + 15 * 60 * 1000);
 
-    // Mark the code as used and store the reset token
     await this.prisma.passwordResetToken.update({
       where: { id: resetToken.id },
       data: {
         usedAt: new Date(),
-        codeHash: resetTokenHash, // Reuse codeHash field to store the reset token hash
+        codeHash: resetTokenHash,
         expiresAt: resetTokenExpires,
       },
     });
-
-    return { resetToken: resetTokenValue };
+    return { resetToken: `${resetToken.id}.${resetTokenValue}` };
   }
 
   async resetPassword(
@@ -192,27 +181,34 @@ export class AuthService {
   ): Promise<{ message: string }> {
     const { resetToken, newPassword } = resetPasswordDto;
 
-    // Find the reset token (by hashed value)
+    const match = /^(\d+)\.([0-9a-f]+)$/.exec(resetToken);
+    if (!match) {
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+    const tokenId = Number(match[1]);
+    const tokenSecret = match[2];
+
     const storedToken = await this.prisma.passwordResetToken.findFirst({
       where: {
-        usedAt: { not: null }, // Only tokens that have been verified (code used)
-        expiresAt: { gte: new Date() }, // Not expired
+        id: tokenId,
+        usedAt: { not: null },
+        expiresAt: { gte: new Date() },
       },
-      orderBy: { createdAt: 'desc' },
     });
 
     if (!storedToken) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Verify the reset token
-    const isTokenValid = await bcrypt.compare(resetToken, storedToken.codeHash);
+    const isTokenValid = await bcrypt.compare(
+      tokenSecret,
+      storedToken.codeHash,
+    );
 
     if (!isTokenValid) {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Get the user
     const user = await this.prisma.user.findUnique({
       where: { id: storedToken.userId },
     });
@@ -221,7 +217,6 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Hash the new password
     const passwordHash = await bcrypt.hash(newPassword, 10);
 
     // Update user password and invalidate all refresh tokens (force re-login)
@@ -396,7 +391,7 @@ export class AuthService {
     let payload: JwtPayload;
     try {
       payload = this.jwtService.verify<JwtPayload>(refreshToken, {
-        secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
+        secret: this.refreshSecret,
       });
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
@@ -505,7 +500,7 @@ export class AuthService {
     const payload = { sub: userId, email };
 
     const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_SECRET || 'access-secret',
+      secret: this.accessSecret,
       expiresIn: '15m',
     });
 
@@ -513,7 +508,7 @@ export class AuthService {
     // the same user within the same second would sign byte-identical tokens
     // and collide on the unique `token_hash` column.
     const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET || 'refresh-secret',
+      secret: this.refreshSecret,
       expiresIn: '7d',
       jwtid: randomUUID(),
     });
