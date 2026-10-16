@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import type { Request } from 'express';
 import { MediaController } from './media.controller';
 import { MediaService } from './media.service';
 import {
@@ -12,6 +13,7 @@ describe('MediaController', () => {
 
   const mockMediaService = {
     upload: jest.fn(),
+    uploadFile: jest.fn(),
     findOne: jest.fn(),
     findByPost: jest.fn(),
     findByComment: jest.fn(),
@@ -52,6 +54,7 @@ describe('MediaController', () => {
       expect(collectRoutes(MediaController)).toEqual(
         [
           'POST /media',
+          'POST /media/upload',
           'GET /media/:id',
           'GET /media/post/:postId',
           'GET /media/comment/:commentId',
@@ -63,6 +66,7 @@ describe('MediaController', () => {
 
     it('should map each handler to its route', () => {
       expect(routeOf(MediaController, 'upload')).toBe('POST /media');
+      expect(routeOf(MediaController, 'uploadFile')).toBe('POST /media/upload');
       expect(routeOf(MediaController, 'findOne')).toBe('GET /media/:id');
       expect(routeOf(MediaController, 'findByPost')).toBe(
         'GET /media/post/:postId',
@@ -96,6 +100,45 @@ describe('MediaController', () => {
       expect(mockMediaService.upload).toHaveBeenCalledWith(
         { ...uploadMediaDto, postId: 5 },
         1,
+      );
+    });
+  });
+
+  describe('uploadFile', () => {
+    const file = { filename: 'abc.png' } as Express.Multer.File;
+    const req = {
+      protocol: 'http',
+      get: (header: string) => (header === 'host' ? 'api.test' : undefined),
+    } as unknown as Request;
+
+    afterEach(() => {
+      delete process.env.PUBLIC_API_URL;
+    });
+
+    it('should build the base url from the request', async () => {
+      mockMediaService.uploadFile.mockResolvedValue({ id: 1 });
+
+      await controller.uploadFile(file, '5', 1, req);
+
+      expect(mockMediaService.uploadFile).toHaveBeenCalledWith(
+        file,
+        '5',
+        1,
+        'http://api.test',
+      );
+    });
+
+    it('should prefer PUBLIC_API_URL when set', async () => {
+      process.env.PUBLIC_API_URL = 'https://cdn.example.com';
+      mockMediaService.uploadFile.mockResolvedValue({ id: 1 });
+
+      await controller.uploadFile(file, '5', 1, req);
+
+      expect(mockMediaService.uploadFile).toHaveBeenCalledWith(
+        file,
+        '5',
+        1,
+        'https://cdn.example.com',
       );
     });
   });

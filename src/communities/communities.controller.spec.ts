@@ -14,6 +14,7 @@ describe('CommunitiesController', () => {
   const mockCommunitiesService = {
     create: jest.fn(),
     findAll: jest.fn(),
+    findJoined: jest.fn(),
     findOne: jest.fn(),
     findByName: jest.fn(),
     update: jest.fn(),
@@ -61,6 +62,7 @@ describe('CommunitiesController', () => {
         [
           'POST /communities',
           'GET /communities',
+          'GET /communities/joined',
           'GET /communities/:id',
           'GET /communities/name/:name',
           'PUT /communities/:id',
@@ -80,6 +82,9 @@ describe('CommunitiesController', () => {
       );
       expect(routeOf(CommunitiesController, 'findAll')).toBe(
         'GET /communities',
+      );
+      expect(routeOf(CommunitiesController, 'findJoined')).toBe(
+        'GET /communities/joined',
       );
       expect(routeOf(CommunitiesController, 'findOne')).toBe(
         'GET /communities/:id',
@@ -132,6 +137,17 @@ describe('CommunitiesController', () => {
       await controller.findAll({ page: 2, limit: 15 });
 
       expect(mockCommunitiesService.findAll).toHaveBeenCalledWith(2, 15);
+    });
+  });
+
+  describe('findJoined', () => {
+    it('should forward the authenticated user id and pagination', async () => {
+      mockCommunitiesService.findJoined.mockResolvedValue(paginated);
+
+      const result = await controller.findJoined(7, { page: 1, limit: 50 });
+
+      expect(mockCommunitiesService.findJoined).toHaveBeenCalledWith(7, 1, 50);
+      expect(result).toBe(paginated);
     });
   });
 

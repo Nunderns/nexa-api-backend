@@ -26,6 +26,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 
+RUN mkdir -p /app/uploads && chown node:node /app/uploads
+VOLUME /app/uploads
+
 EXPOSE 3000
 
 USER node

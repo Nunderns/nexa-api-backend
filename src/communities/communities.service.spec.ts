@@ -144,6 +144,31 @@ describe('CommunitiesService', () => {
     });
   });
 
+  describe('findJoined', () => {
+    it('should return the communities of non-banned memberships', async () => {
+      mockPrismaService.communityMember.findMany.mockResolvedValue([
+        { ...mockMembership, community: mockCommunity },
+      ]);
+      mockPrismaService.communityMember.count.mockResolvedValue(1);
+
+      const result = await service.findJoined(1, 1, 20);
+
+      expect(result.data).toEqual([mockCommunity]);
+      expect(result.total).toBe(1);
+      expect(result.totalPages).toBe(1);
+      expect(mockPrismaService.communityMember.findMany).toHaveBeenCalledWith({
+        where: { userId: 1, bannedAt: null },
+        skip: 0,
+        take: 20,
+        include: expect.any(Object),
+        orderBy: { joinedAt: 'desc' },
+      });
+      expect(mockPrismaService.communityMember.count).toHaveBeenCalledWith({
+        where: { userId: 1, bannedAt: null },
+      });
+    });
+  });
+
   describe('findOne', () => {
     it('should return a community by id', async () => {
       mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);

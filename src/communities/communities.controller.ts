@@ -60,6 +60,27 @@ export class CommunitiesController {
     return this.communitiesService.findAll(pagination.page, pagination.limit);
   }
 
+  // Declared before `:id` so `joined` is not parsed as an id.
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get('joined')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get communities the current user has joined' })
+  @ApiResponse({
+    status: 200,
+    description: 'Joined communities retrieved successfully',
+  })
+  async findJoined(
+    @CurrentUser('id') userId: number,
+    @Query() pagination: PaginationDto,
+  ) {
+    return this.communitiesService.findJoined(
+      userId,
+      pagination.page,
+      pagination.limit,
+    );
+  }
+
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
   @ApiOperation({ summary: 'Get community by ID' })
