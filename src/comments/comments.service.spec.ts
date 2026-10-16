@@ -18,10 +18,14 @@ describe('CommentsService', () => {
       update: jest.fn(),
       count: jest.fn(),
     },
+    communityMember: {
+      findUnique: jest.fn(),
+    },
   };
 
   const mockPost = {
     id: 1,
+    communityId: 1,
     authorId: 1,
     title: 'Test Post',
     isLocked: false,
@@ -49,6 +53,14 @@ describe('CommentsService', () => {
     post: { id: 1, title: 'Test Post' },
   };
 
+  const mockMembership = {
+    communityId: 1,
+    userId: 1,
+    role: 'MEMBER',
+    joinedAt: new Date(),
+    bannedAt: null,
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -73,6 +85,35 @@ describe('CommentsService', () => {
 
   describe('create', () => {
     const createCommentDto = { postId: 1, content: 'This is a comment' };
+
+    beforeEach(() => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+    });
+
+    it('should throw ForbiddenException if user is not a member', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.create(createCommentDto, 1)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockPrismaService.comment.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw ForbiddenException if user is banned', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue({
+        ...mockMembership,
+        bannedAt: new Date(),
+      });
+
+      await expect(service.create(createCommentDto, 1)).rejects.toThrow(
+        'You are banned from this community',
+      );
+      expect(mockPrismaService.comment.create).not.toHaveBeenCalled();
+    });
 
     it('should create a top level comment and increment the post counter', async () => {
       mockPrismaService.post.findUnique.mockResolvedValue(mockPost);

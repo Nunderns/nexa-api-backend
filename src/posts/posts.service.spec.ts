@@ -119,6 +119,25 @@ describe('PostsService', () => {
         ForbiddenException,
       );
     });
+
+    it('should throw ForbiddenException if user is banned', async () => {
+      const createPostDto = {
+        communityId: 1,
+        title: 'Test Post',
+        content: 'Test content',
+        postType: PostType.TEXT,
+      };
+
+      mockPrismaService.communityMember.findUnique.mockResolvedValue({
+        ...mockMembership,
+        bannedAt: new Date(),
+      });
+
+      await expect(service.create(createPostDto, 1)).rejects.toThrow(
+        'You are banned from this community',
+      );
+      expect(mockPrismaService.post.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {

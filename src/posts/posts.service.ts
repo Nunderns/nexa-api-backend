@@ -34,6 +34,10 @@ export class PostsService {
       );
     }
 
+    if (membership.bannedAt) {
+      throw new ForbiddenException('You are banned from this community');
+    }
+
     const post = await this.prisma.post.create({
       data: {
         communityId: +communityId,

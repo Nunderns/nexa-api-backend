@@ -34,6 +34,25 @@ export class CommentsService {
       throw new NotFoundException('Post has been deleted');
     }
 
+    const membership = await this.prisma.communityMember.findUnique({
+      where: {
+        communityId_userId: {
+          communityId: post.communityId,
+          userId,
+        },
+      },
+    });
+
+    if (!membership) {
+      throw new ForbiddenException(
+        'You must be a member of this community to comment',
+      );
+    }
+
+    if (membership.bannedAt) {
+      throw new ForbiddenException('You are banned from this community');
+    }
+
     if (parentId) {
       const parentComment = await this.prisma.comment.findUnique({
         where: { id: parentId },
