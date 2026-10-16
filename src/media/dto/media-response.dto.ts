@@ -23,7 +23,7 @@ export class MediaResponseDto {
   mimeType: string;
 
   @ApiProperty({ example: 1024000 })
-  sizeBytes: bigint;
+  sizeBytes: number;
 
   @ApiProperty({ example: '2024-01-01T00:00:00Z' })
   createdAt: Date;

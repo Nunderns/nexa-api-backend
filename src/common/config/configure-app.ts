@@ -1,4 +1,6 @@
 import { INestApplication } from '@nestjs/common';
+import { static as serveStatic } from 'express';
+import { UPLOAD_DIR, UPLOAD_ROUTE } from '../../media/media-storage.config';
 import { TransformInterceptor } from '../interceptors/transform.interceptor';
 import { HttpExceptionFilter } from '../filters/http-exception.filter';
 import { CustomValidationPipe } from '../pipes/validation.pipe';
@@ -14,6 +16,20 @@ export function configureApp(app: INestApplication): INestApplication {
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableCors();
+
+  // Uploaded media. `nosniff` keeps browsers on the extension's content type,
+  // which the upload filter derives from an allow-list.
+  app.use(
+    UPLOAD_ROUTE,
+    serveStatic(UPLOAD_DIR, {
+      index: false,
+      fallthrough: false,
+      setHeaders: (res) => {
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      },
+    }),
+  );
 
   return app;
 }

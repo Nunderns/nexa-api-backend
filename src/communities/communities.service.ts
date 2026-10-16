@@ -74,6 +74,46 @@ export class CommunitiesService {
     };
   }
 
+  /**
+   * Communities the user belongs to and is not banned from, i.e. the ones
+   * `POST /posts` will accept. Most recently joined first.
+   */
+  async findJoined(userId: number, page: number = 1, limit: number = 20) {
+    const skip = (page - 1) * limit;
+    const where = { userId, bannedAt: null };
+
+    const [memberships, total] = await Promise.all([
+      this.prisma.communityMember.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          community: {
+            include: {
+              creator: {
+                select: {
+                  id: true,
+                  username: true,
+                  displayName: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { joinedAt: 'desc' },
+      }),
+      this.prisma.communityMember.count({ where }),
+    ]);
+
+    return {
+      data: memberships.map((membership) => membership.community),
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
   async findOne(id: number): Promise<CommunityResponseDto> {
     const community = await this.prisma.community.findUnique({
       where: { id },

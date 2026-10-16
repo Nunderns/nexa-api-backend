@@ -1,7 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
+import { unlink } from 'fs/promises';
+import { PostType } from '@prisma/client';
 import { MediaService } from './media.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { MAX_IMAGE_BYTES } from './media-storage.config';
+
+jest.mock('fs/promises', () => ({
+  unlink: jest.fn().mockResolvedValue(undefined),
+}));
 
 describe('MediaService', () => {
   let service: MediaService;
@@ -33,6 +45,9 @@ describe('MediaService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
   };
+
+  /** What the service returns: the BigInt column as a plain number. */
+  const mediaResponse = { ...mockMedia, sizeBytes: 1024 };
 
   const baseDto = {
     url: 'https://example.com/image.jpg',
@@ -68,7 +83,7 @@ describe('MediaService', () => {
 
       const result = await service.upload(baseDto, 1);
 
-      expect(result).toEqual(mockMedia);
+      expect(result).toEqual(mediaResponse);
       expect(mockPrismaService.post.findUnique).not.toHaveBeenCalled();
       expect(mockPrismaService.comment.findUnique).not.toHaveBeenCalled();
 
@@ -174,13 +189,137 @@ describe('MediaService', () => {
     });
   });
 
+  describe('uploadFile', () => {
+    const file = {
+      fieldname: 'file',
+      originalname: 'photo.png',
+      mimetype: 'image/png',
+      size: 2048,
+      filename: 'abc.png',
+      path: '/tmp/uploads/abc.png',
+    } as Express.Multer.File;
+
+    const imagePost = { id: 1, authorId: 1, postType: PostType.IMAGE };
+
+    it('should record the file against an own IMAGE post', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(imagePost);
+      mockPrismaService.media.create.mockResolvedValue(mockMedia);
+
+      const result = await service.uploadFile(
+        file,
+        '1',
+        1,
+        'http://localhost:3000',
+      );
+
+      expect(result).toEqual(mediaResponse);
+      expect(mockPrismaService.media.create).toHaveBeenCalledWith({
+        data: {
+          userId: 1,
+          postId: 1,
+          storageKey: 'abc.png',
+          url: 'http://localhost:3000/uploads/abc.png',
+          mimeType: 'image/png',
+          sizeBytes: BigInt(2048),
+        },
+      });
+      expect(unlink).not.toHaveBeenCalled();
+    });
+
+    it('should accept a video on a VIDEO post', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue({
+        ...imagePost,
+        postType: PostType.VIDEO,
+      });
+      mockPrismaService.media.create.mockResolvedValue(mockMedia);
+
+      await service.uploadFile(
+        { ...file, mimetype: 'video/mp4' },
+        '1',
+        1,
+        'http://x',
+      );
+
+      expect(mockPrismaService.media.create).toHaveBeenCalled();
+    });
+
+    it('should reject a missing file', async () => {
+      await expect(
+        service.uploadFile(undefined, '1', 1, 'http://x'),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it.each([undefined, 'abc', '0', '-1', '1.5'])(
+      'should reject postId %p and delete the file',
+      async (postId) => {
+        await expect(
+          service.uploadFile(file, postId, 1, 'http://x'),
+        ).rejects.toThrow(BadRequestException);
+        expect(unlink).toHaveBeenCalledWith(file.path);
+      },
+    );
+
+    it('should reject an unknown post and delete the file', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.uploadFile(file, '1', 1, 'http://x'),
+      ).rejects.toThrow(NotFoundException);
+      expect(unlink).toHaveBeenCalledWith(file.path);
+    });
+
+    it('should reject another user post and delete the file', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue({
+        ...imagePost,
+        authorId: 2,
+      });
+
+      await expect(
+        service.uploadFile(file, '1', 1, 'http://x'),
+      ).rejects.toThrow(ForbiddenException);
+      expect(unlink).toHaveBeenCalledWith(file.path);
+    });
+
+    it.each([
+      [PostType.IMAGE, 'video/mp4'],
+      [PostType.VIDEO, 'image/png'],
+      [PostType.TEXT, 'image/png'],
+      [PostType.LINK, 'image/png'],
+    ])('should reject a %s post receiving %s', async (postType, mimetype) => {
+      mockPrismaService.post.findUnique.mockResolvedValue({
+        ...imagePost,
+        postType,
+      });
+
+      await expect(
+        service.uploadFile({ ...file, mimetype }, '1', 1, 'http://x'),
+      ).rejects.toThrow(BadRequestException);
+      expect(unlink).toHaveBeenCalledWith(file.path);
+      expect(mockPrismaService.media.create).not.toHaveBeenCalled();
+    });
+
+    it('should reject an image above the image size limit', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(imagePost);
+
+      await expect(
+        service.uploadFile(
+          { ...file, size: MAX_IMAGE_BYTES + 1 },
+          '1',
+          1,
+          'http://x',
+        ),
+      ).rejects.toThrow(PayloadTooLargeException);
+      expect(unlink).toHaveBeenCalledWith(file.path);
+    });
+  });
+
   describe('findOne', () => {
     it('should return media by id', async () => {
       mockPrismaService.media.findUnique.mockResolvedValue(mockMedia);
 
       const result = await service.findOne(1);
 
-      expect(result).toEqual(mockMedia);
+      expect(result).toEqual(mediaResponse);
       expect(mockPrismaService.media.findUnique).toHaveBeenCalledWith({
         where: { id: 1 },
       });
@@ -199,7 +338,7 @@ describe('MediaService', () => {
 
       const result = await service.findByPost(1);
 
-      expect(result).toEqual([mockMedia]);
+      expect(result).toEqual([mediaResponse]);
       expect(mockPrismaService.media.findMany).toHaveBeenCalledWith({
         where: { postId: 1 },
         orderBy: { createdAt: 'asc' },
@@ -213,7 +352,7 @@ describe('MediaService', () => {
 
       const result = await service.findByComment(10);
 
-      expect(result).toEqual([mockMedia]);
+      expect(result).toEqual([mediaResponse]);
       expect(mockPrismaService.media.findMany).toHaveBeenCalledWith({
         where: { commentId: 10 },
         orderBy: { createdAt: 'asc' },
@@ -227,7 +366,7 @@ describe('MediaService', () => {
 
       const result = await service.findByUser(1);
 
-      expect(result).toEqual([mockMedia]);
+      expect(result).toEqual([mediaResponse]);
       expect(mockPrismaService.media.findMany).toHaveBeenCalledWith({
         where: { userId: 1 },
         orderBy: { createdAt: 'desc' },
