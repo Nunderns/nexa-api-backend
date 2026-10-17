@@ -69,7 +69,7 @@ function isHttpOrigin(value: string): boolean {
     const url = new URL(value);
     return (
       (url.protocol === 'http:' || url.protocol === 'https:') &&
-      url.pathname.replace(/\/+$/, '') === '' &&
+      /^\/*$/.test(url.pathname) &&
       !url.search &&
       !url.hash
     );

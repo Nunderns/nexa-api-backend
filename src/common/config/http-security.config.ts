@@ -19,8 +19,15 @@ export function allowedOrigins(): string[] {
 
   return raw
     .split(',')
-    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .map((origin) => stripTrailingSlashes(origin.trim()))
     .filter(Boolean);
+}
+
+/** Linear-time stand-in for `.replace(/\/+$/, '')`, which backtracks. */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
 }
 
 /** Max size of JSON and urlencoded bodies, in body-parser syntax. */
