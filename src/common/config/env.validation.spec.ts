@@ -63,8 +63,40 @@ describe('validateEnv', () => {
         NODE_ENV: 'production',
         JWT_SECRET: longSecret('a'),
         JWT_REFRESH_SECRET: longSecret('b'),
+        FRONTEND_URL: 'https://nexa.example.com',
       }),
     ).not.toThrow();
+  });
+
+  it('requires FRONTEND_URL in production', () => {
+    expect(() =>
+      validateEnv({
+        ...valid,
+        NODE_ENV: 'production',
+        JWT_SECRET: longSecret('a'),
+        JWT_REFRESH_SECRET: longSecret('b'),
+      }),
+    ).toThrow(/FRONTEND_URL: is required in production/);
+  });
+
+  it('accepts several comma-separated origins', () => {
+    expect(() =>
+      validateEnv({
+        ...valid,
+        FRONTEND_URL: 'https://nexa.example.com, http://localhost:5173/',
+      }),
+    ).not.toThrow();
+  });
+
+  it.each([
+    'nexa.example.com',
+    'ftp://nexa.example.com',
+    'https://x.com/app',
+    '*',
+  ])('rejects FRONTEND_URL that is not an origin (%p)', (value) => {
+    expect(() => validateEnv({ ...valid, FRONTEND_URL: value })).toThrow(
+      'FRONTEND_URL',
+    );
   });
 
   it('never echoes secret values in the error', () => {
