@@ -19,9 +19,29 @@ const envSchema = z
     DATABASE_URL: z.string().trim().min(1, 'is required'),
     JWT_SECRET: secret,
     JWT_REFRESH_SECRET: secret,
+    FRONTEND_URL: z.string().trim().optional(),
   })
   .superRefine((env, ctx) => {
+    for (const origin of env.FRONTEND_URL?.split(',') ?? []) {
+      if (origin.trim() && !isHttpOrigin(origin.trim())) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['FRONTEND_URL'],
+          message: `"${origin.trim()}" is not an http(s) origin`,
+        });
+      }
+    }
+
     if (env.NODE_ENV !== 'production') return;
+
+    // Without it CORS would fall back to the local dev server.
+    if (!env.FRONTEND_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['FRONTEND_URL'],
+        message: 'is required in production',
+      });
+    }
 
     for (const key of ['JWT_SECRET', 'JWT_REFRESH_SECRET'] as const) {
       if (env[key].length < MIN_PRODUCTION_SECRET_LENGTH) {
@@ -43,6 +63,20 @@ const envSchema = z
       });
     }
   });
+
+function isHttpOrigin(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      url.pathname.replace(/\/+$/, '') === '' &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type Env = z.infer<typeof envSchema>;
 
