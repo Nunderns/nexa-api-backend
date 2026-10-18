@@ -5,7 +5,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
+import {
+  GLOBAL_RATE_LIMIT,
+  VOTE_RATE_LIMIT,
+  USER_THROTTLER_NAME,
+} from '../common/config/rate-limit.config';
+import { UserThrottleGuard } from '../common/guards/user-throttle.guard';
 import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
 
 import { VotesService } from './votes.service';
@@ -20,9 +25,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class VotesController {
   constructor(private readonly votesService: VotesService) {}
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: VOTE_RATE_LIMIT,
+  })
   @Post('post/:postId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Vote on a post' })
   @ApiResponse({
@@ -56,9 +64,12 @@ export class VotesController {
     return this.votesService.getPostVote(+postId, userId);
   }
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: VOTE_RATE_LIMIT,
+  })
   @Post('comment/:commentId')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Vote on a comment' })
   @ApiResponse({

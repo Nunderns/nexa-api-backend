@@ -3,14 +3,23 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  CommentCreatedEvent,
+  CommentUpdatedEvent,
+  DomainEvent,
+} from '../common/events/domain-events';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
 import { CommentResponseDto } from './dto/comment-response.dto';
 
 @Injectable()
 export class CommentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventEmitter2,
+  ) {}
 
   async create(
     createCommentDto: CreateCommentDto,
@@ -53,6 +62,8 @@ export class CommentsService {
       throw new ForbiddenException('You are banned from this community');
     }
 
+    let parentAuthorId: number | null = null;
+
     if (parentId) {
       const parentComment = await this.prisma.comment.findUnique({
         where: { id: parentId },
@@ -63,6 +74,8 @@ export class CommentsService {
           'Parent comment not found or does not belong to this post',
         );
       }
+
+      parentAuthorId = parentComment.authorId;
     }
 
     const comment = await this.prisma.comment.create({
@@ -94,6 +107,19 @@ export class CommentsService {
       where: { id: postId },
       data: { commentCount: { increment: 1 } },
     });
+
+    this.events.emit(
+      DomainEvent.CommentCreated,
+      new CommentCreatedEvent(
+        comment.id,
+        postId,
+        userId,
+        content,
+        post.authorId,
+        parentId ?? null,
+        parentAuthorId,
+      ),
+    );
 
     return comment;
   }
@@ -228,7 +254,7 @@ export class CommentsService {
   ): Promise<CommentResponseDto> {
     const comment = await this.prisma.comment.findUnique({
       where: { id },
-      include: { post: true },
+      include: { post: true, parent: { select: { authorId: true } } },
     });
 
     if (!comment) {
@@ -263,6 +289,19 @@ export class CommentsService {
         },
       },
     });
+
+    if (updateCommentDto.content !== undefined) {
+      this.events.emit(
+        DomainEvent.CommentUpdated,
+        new CommentUpdatedEvent(
+          id,
+          comment.postId,
+          userId,
+          updateCommentDto.content,
+          comment.parent ? comment.parent.authorId : comment.post.authorId,
+        ),
+      );
+    }
 
     return updatedComment;
   }

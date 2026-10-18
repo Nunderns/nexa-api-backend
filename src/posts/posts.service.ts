@@ -3,7 +3,13 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  DomainEvent,
+  PostCreatedEvent,
+  PostUpdatedEvent,
+} from '../common/events/domain-events';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
@@ -11,7 +17,10 @@ import { CommunityRole, Prisma } from '@prisma/client';
 
 @Injectable()
 export class PostsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventEmitter2,
+  ) {}
 
   async create(
     createPostDto: CreatePostDto,
@@ -69,6 +78,11 @@ export class PostsService {
       where: { id: +communityId },
       data: { postCount: { increment: 1 } },
     });
+
+    this.events.emit(
+      DomainEvent.PostCreated,
+      new PostCreatedEvent(post.id, userId, post.title, post.content),
+    );
 
     return post;
   }
@@ -253,6 +267,21 @@ export class PostsService {
         },
       },
     });
+
+    if (
+      updatePostDto.title !== undefined ||
+      updatePostDto.content !== undefined
+    ) {
+      this.events.emit(
+        DomainEvent.PostUpdated,
+        new PostUpdatedEvent(
+          id,
+          userId,
+          updatedPost.title,
+          updatedPost.content,
+        ),
+      );
+    }
 
     return updatedPost;
   }

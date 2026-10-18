@@ -11,6 +11,8 @@ import { CommentsModule } from './comments/comments.module';
 import { VotesModule } from './votes/votes.module';
 import { MediaModule } from './media/media.module';
 import { ChatModule } from './chat/chat.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { DomainEventsModule } from './common/events/domain-events.module';
 import { GLOBAL_RATE_LIMIT } from './common/config/rate-limit.config';
 import { validateEnv } from './common/config/env.validation';
 
@@ -27,6 +29,7 @@ import { validateEnv } from './common/config/env.validation';
         },
       ],
     }),
+    DomainEventsModule,
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -36,6 +39,7 @@ import { validateEnv } from './common/config/env.validation';
     VotesModule,
     MediaModule,
     ChatModule,
+    NotificationsModule,
   ],
   providers: [
     // Registered as a global guard so it runs before JwtAuthGuard: a flood

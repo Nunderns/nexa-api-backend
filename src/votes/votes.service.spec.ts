@@ -2,9 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { VotesService } from './votes.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DomainEvent, VoteCastEvent } from '../common/events/domain-events';
 
 describe('VotesService', () => {
   let service: VotesService;
+
+  const mockEvents = { emit: jest.fn() };
 
   const mockPrismaService = {
     post: {
@@ -63,6 +67,7 @@ describe('VotesService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        { provide: EventEmitter2, useValue: mockEvents },
       ],
     }).compile();
 
@@ -343,6 +348,71 @@ describe('VotesService', () => {
       mockPrismaService.commentVote.findUnique.mockResolvedValue(null);
 
       await expect(service.getCommentVote(10, 1)).resolves.toBeNull();
+    });
+  });
+
+  describe('domain events', () => {
+    it('should publish vote.cast for a new post upvote', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.postVote.findUnique.mockResolvedValue(null);
+      mockPrismaService.postVote.create.mockResolvedValue(mockVote);
+
+      await service.voteOnPost(1, { vote: 1 }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.VoteCast,
+        new VoteCastEvent('POST', 1, 1, 1, mockPost.authorId, 0, 1),
+      );
+    });
+
+    it('should report the previous vote when a vote changes or is removed', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.postVote.findUnique.mockResolvedValue({
+        ...mockVote,
+        vote: -1,
+      });
+      mockPrismaService.postVote.update.mockResolvedValue(mockVote);
+
+      await service.voteOnPost(1, { vote: 1 }, 1);
+      expect(mockEvents.emit).toHaveBeenLastCalledWith(
+        DomainEvent.VoteCast,
+        expect.objectContaining({ previousVote: -1, vote: 1 }),
+      );
+
+      mockPrismaService.postVote.findUnique.mockResolvedValue(mockVote);
+      await service.voteOnPost(1, { vote: 0 }, 1);
+      expect(mockEvents.emit).toHaveBeenLastCalledWith(
+        DomainEvent.VoteCast,
+        expect.objectContaining({ previousVote: 1, vote: 0 }),
+      );
+    });
+
+    it('should not publish when an existing vote is re-cast unchanged', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.postVote.findUnique.mockResolvedValue(mockVote);
+      mockPrismaService.postVote.update.mockResolvedValue(mockVote);
+
+      await service.voteOnPost(1, { vote: 1 }, 1);
+
+      expect(mockEvents.emit).not.toHaveBeenCalled();
+    });
+
+    it('should publish vote.cast for a comment with its post id', async () => {
+      mockPrismaService.comment.findUnique.mockResolvedValue({
+        id: 3,
+        postId: 1,
+        authorId: 8,
+        isDeleted: false,
+      });
+      mockPrismaService.commentVote.findUnique.mockResolvedValue(null);
+      mockPrismaService.commentVote.create.mockResolvedValue({});
+
+      await service.voteOnComment(3, { vote: 1 }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.VoteCast,
+        new VoteCastEvent('COMMENT', 3, 1, 1, 8, 0, 1),
+      );
     });
   });
 });

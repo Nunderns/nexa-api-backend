@@ -2,9 +2,17 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CommentsService } from './comments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  CommentCreatedEvent,
+  CommentUpdatedEvent,
+  DomainEvent,
+} from '../common/events/domain-events';
 
 describe('CommentsService', () => {
   let service: CommentsService;
+
+  const mockEvents = { emit: jest.fn() };
 
   const mockPrismaService = {
     post: {
@@ -69,6 +77,7 @@ describe('CommentsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        { provide: EventEmitter2, useValue: mockEvents },
       ],
     }).compile();
 
@@ -395,6 +404,71 @@ describe('CommentsService', () => {
           skip: 0,
           take: 20,
         }),
+      );
+    });
+  });
+
+  describe('domain events', () => {
+    beforeEach(() => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+    });
+
+    it('should publish comment.created with the post author after the write', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue({
+        ...mockPost,
+        authorId: 5,
+      });
+      mockPrismaService.comment.create.mockResolvedValue(mockComment);
+
+      await service.create({ postId: 1, content: 'hi @bob' }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.CommentCreated,
+        new CommentCreatedEvent(10, 1, 1, 'hi @bob', 5, null, null),
+      );
+    });
+
+    it('should carry the parent author for a reply', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.comment.findUnique.mockResolvedValue({
+        id: 4,
+        postId: 1,
+        authorId: 9,
+      });
+      mockPrismaService.comment.create.mockResolvedValue(mockComment);
+
+      await service.create({ postId: 1, content: 'reply', parentId: 4 }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.CommentCreated,
+        expect.objectContaining({ parentId: 4, parentAuthorId: 9 }),
+      );
+    });
+
+    it('should not publish anything when the comment is rejected', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create({ postId: 1, content: 'x' }, 1),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockEvents.emit).not.toHaveBeenCalled();
+    });
+
+    it('should publish comment.updated with the reply recipient when content changes', async () => {
+      mockPrismaService.comment.findUnique.mockResolvedValue({
+        ...mockComment,
+        post: { ...mockPost, authorId: 5 },
+        parent: null,
+      });
+      mockPrismaService.comment.update.mockResolvedValue(mockComment);
+
+      await service.update(10, { content: 'now @carol' }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.CommentUpdated,
+        new CommentUpdatedEvent(10, 1, 1, 'now @carol', 5),
       );
     });
   });

@@ -3,9 +3,13 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { ChatService } from './chat.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DomainEvent, MessageSentEvent } from '../common/events/domain-events';
 
 describe('ChatService', () => {
   let service: ChatService;
+
+  const mockEvents = { emit: jest.fn() };
 
   const mockPrismaService = {
     user: {
@@ -79,6 +83,7 @@ describe('ChatService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        { provide: EventEmitter2, useValue: mockEvents },
       ],
     }).compile();
 
@@ -508,6 +513,38 @@ describe('ChatService', () => {
       expect(mockPrismaService.message.findMany).toHaveBeenCalledWith(
         expect.not.objectContaining({ include: expect.anything() }),
       );
+    });
+  });
+
+  describe('domain events', () => {
+    beforeEach(() => {
+      mockPrismaService.chat.findFirst.mockResolvedValue(callerChat());
+      mockPrismaService.message.create.mockResolvedValue(message);
+      mockPrismaService.chat.update.mockResolvedValue(callerChat());
+      mockPrismaService.$transaction.mockImplementation(
+        (work: (tx: unknown) => Promise<unknown>) => work(mockPrismaService),
+      );
+    });
+
+    it('should publish message.sent to the other participant, without content', async () => {
+      await service.sendMessage(7, { content: 'secret' }, 1);
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.MessageSent,
+        new MessageSentEvent(message.id, 7, 1, 2),
+      );
+      expect(JSON.stringify(mockEvents.emit.mock.calls)).not.toContain(
+        'secret',
+      );
+    });
+
+    it('should not publish when the transaction fails', async () => {
+      mockPrismaService.chat.findFirst.mockResolvedValue(null);
+
+      await expect(service.sendMessage(7, { content: 'x' }, 1)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockEvents.emit).not.toHaveBeenCalled();
     });
   });
 });

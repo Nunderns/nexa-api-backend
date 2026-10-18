@@ -16,7 +16,12 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
+import {
+  GLOBAL_RATE_LIMIT,
+  COMMENT_WRITE_RATE_LIMIT,
+  USER_THROTTLER_NAME,
+} from '../common/config/rate-limit.config';
+import { UserThrottleGuard } from '../common/guards/user-throttle.guard';
 import { CommentsService } from './comments.service';
 import { CreateCommentDto } from './dto/create-comment.dto';
 import { UpdateCommentDto } from './dto/update-comment.dto';
@@ -30,9 +35,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class CommentsController {
   constructor(private readonly commentsService: CommentsService) {}
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: COMMENT_WRITE_RATE_LIMIT,
+  })
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new comment' })
   @ApiResponse({
@@ -92,9 +100,12 @@ export class CommentsController {
     return this.commentsService.findOne(+id);
   }
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: COMMENT_WRITE_RATE_LIMIT,
+  })
   @Put(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update comment' })
   @ApiResponse({

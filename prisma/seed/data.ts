@@ -326,6 +326,12 @@ export const posts: SeedPost[] = [
         ],
       },
       {
+        author: 'theo_quill',
+        content:
+          'Bookmarking this. @kenji_arai you were asking about exactly this last week, and @lena_marlow is the one to ask.',
+        hoursAfterPost: 6,
+      },
+      {
         author: 'juno_park',
         content: 'Saving this for when we inevitably do the same.',
         hoursAfterPost: 6,
@@ -615,6 +621,66 @@ export const posts: SeedPost[] = [
     createdHoursAgo: 24 * 30,
     isDeleted: true,
   },
+];
+
+export interface SeedChatMessage {
+  from: string;
+  content: string;
+  hoursAgo: number;
+}
+
+export interface SeedChat {
+  participants: [string, string];
+  messages: SeedChatMessage[];
+}
+
+/** Direct messages, so there are DIRECT_MESSAGE notifications to show. */
+export const chats: SeedChat[] = [
+  {
+    participants: ['lena_marlow', 'otto_brandt'],
+    messages: [
+      {
+        from: 'otto_brandt',
+        content: 'Could you review the strict-mode write-up before I pin it?',
+        hoursAgo: 72,
+      },
+      {
+        from: 'lena_marlow',
+        content: 'Sure, sending notes tonight.',
+        hoursAgo: 70,
+      },
+      {
+        from: 'otto_brandt',
+        content: 'Thanks! No rush.',
+        hoursAgo: 3,
+      },
+    ],
+  },
+  {
+    participants: ['mira_okafor', 'theo_quill'],
+    messages: [
+      {
+        from: 'mira_okafor',
+        content:
+          'Loved your question about satisfies, writing a follow-up post.',
+        hoursAgo: 1,
+      },
+    ],
+  },
+];
+
+export interface SeedNotificationPreference {
+  username: string;
+  postReplies?: boolean;
+  commentReplies?: boolean;
+  mentions?: boolean;
+  votes?: boolean;
+  directMessages?: boolean;
+}
+
+/** Users with non-default preferences. Everyone else has every category on. */
+export const notificationPreferences: SeedNotificationPreference[] = [
+  { username: 'kenji_arai', votes: false },
 ];
 
 export const refreshTokens: SeedRefreshToken[] = [

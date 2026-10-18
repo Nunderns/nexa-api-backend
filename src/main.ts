@@ -29,6 +29,10 @@ function setupSwagger(app: INestApplication) {
     .addTag('votes', 'Voting system')
     .addTag('media', 'Media management')
     .addTag('chats', 'One-to-one chat and messaging')
+    .addTag(
+      'notifications',
+      'Notifications (REST). Real-time events: docs/notifications-websocket.md',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
