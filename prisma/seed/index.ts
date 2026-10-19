@@ -12,9 +12,16 @@ import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
-import { CommunityRole } from '@prisma/client';
 import {
+  CommunityRole,
+  NotificationPreference,
+  NotificationType,
+  Prisma,
+} from '@prisma/client';
+import {
+  chats,
   communities,
+  notificationPreferences,
   MEDIA_BASE_URL,
   postInsights,
   posts,
@@ -534,6 +541,302 @@ async function syncCounters(ctx: SeedContext): Promise<void> {
     WHERE u.id = ANY(${userIds})`;
 }
 
+/** One-to-one chats and their messages, looked up by participant pair. */
+async function seedChats(ctx: SeedContext): Promise<void> {
+  for (const chat of chats) {
+    const ids = chat.participants.map((username) =>
+      requireId(ctx.userIds, username, 'user'),
+    );
+    // Canonical order, as the `chats` check constraint requires.
+    const [userOneId, userTwoId] = [Math.min(...ids), Math.max(...ids)];
+
+    const { id: chatId } = ctx.prisma.chat.upsert({
+      where: { userOneId_userTwoId: { userOneId, userTwoId } },
+      update: {},
+      create: { userOneId, userTwoId },
+      select: { id: true },
+    });
+
+    let lastMessageAt: Date | null = null;
+
+    for (const message of chat.messages) {
+      const senderId = requireId(ctx.userIds, message.from, 'user');
+      const createdAt = hoursAgo(message.hoursAgo, ctx.now);
+      const existing = await ctx.prisma.message.findFirst({
+        where: { chatId, senderId, content: message.content },
+        select: { createdAt: true },
+      });
+
+      const stored =
+        existing ??
+        (await ctx.prisma.message.create({
+          data: {
+            chatId,
+            senderId,
+            content: message.content,
+            createdAt,
+            updatedAt: createdAt,
+          },
+          select: { createdAt: true },
+        }));
+
+      if (!lastMessageAt || stored.createdAt > lastMessageAt) {
+        lastMessageAt = stored.createdAt;
+      }
+    }
+
+    await ctx.prisma.chat.update({
+      where: { id: chatId },
+      data: { lastMessageAt },
+    });
+  }
+}
+
+/**
+ * Same rule as `src/notifications/mentions.ts`. Duplicated rather than
+ * imported, like `INSIGHTS_CHART_HOURS`, so the seed does not depend on
+ * application code.
+ */
+const MENTION_PATTERN =
+  /(?<![\w@])@(\w{3,30})(?!\w)/g;
+
+/** Mirrors `src/notifications/notification-templates.ts`. */
+const NOTIFICATION_TEXT: Record<
+  Exclude<NotificationType, 'SYSTEM'>,
+  { title: string; body: (actor: string) => string }
+> = {
+  POST_REPLY: {
+    title: 'New comment',
+    body: (a) => `@${a} commented on your post`,
+  },
+  COMMENT_REPLY: {
+    title: 'New reply',
+    body: (a) => `@${a} replied to your comment`,
+  },
+  USER_MENTION: { title: 'New mention', body: (a) => `@${a} mentioned you` },
+  POST_UPVOTE: { title: 'New upvote', body: (a) => `@${a} upvoted your post` },
+  COMMENT_UPVOTE: {
+    title: 'New upvote',
+    body: (a) => `@${a} upvoted your comment`,
+  },
+  DIRECT_MESSAGE: {
+    title: 'New message',
+    body: (a) => `@${a} sent you a message`,
+  },
+};
+
+const NOTIFICATION_READ_AFTER_HOURS = 48;
+
+function preferenceAllows(
+  p: NotificationPreference | undefined,
+  type: NotificationType,
+): boolean {
+  if (!p) return true;
+  switch (type) {
+    case 'POST_REPLY':
+      return p.postReplies;
+    case 'COMMENT_REPLY':
+      return p.commentReplies;
+    case 'USER_MENTION':
+      return p.mentions;
+    case 'POST_UPVOTE':
+    case 'COMMENT_UPVOTE':
+      return p.votes;
+    case 'DIRECT_MESSAGE':
+      return p.directMessages;
+    default:
+      return true;
+  }
+}
+
+async function seedNotifications(ctx: SeedContext): Promise<void> {
+  const { prisma } = ctx;
+  const postIds = [...ctx.postIds.values()];
+
+  for (const preference of notificationPreferences) {
+    const { username, ...flags } = preference;
+    const userId = requireId(ctx.userIds, username, 'user');
+    await prisma.notificationPreference.upsert({
+      where: { userId },
+      update: flags,
+      create: { userId, ...flags },
+    });
+  }
+
+  const preferences = new Map(
+    (await prisma.notificationPreference.findMany()).map((p) => [p.userId, p]),
+  );
+  const allows = (userId: number, type: NotificationType): boolean =>
+    preferenceAllows(preferences.get(userId), type);
+
+  const usernames = new Map(
+    (
+      await prisma.user.findMany({
+        where: { id: { in: [...ctx.userIds.values()] } },
+        select: { id: true, username: true },
+      })
+    ).map((u) => [u.id, u.username]),
+  );
+  const userIdByName = new Map([...usernames].map(([id, name]) => [name, id]));
+
+  const rows: Prisma.NotificationCreateManyInput[] = [];
+  const add = (
+    type: Exclude<NotificationType, 'SYSTEM'>,
+    recipientId: number,
+    actorId: number,
+    resource: { type: 'POST' | 'COMMENT' | 'CHAT'; id: number },
+    metadata: Record<string, number | null>,
+    dedupeKey: string,
+    createdAt: Date,
+  ) => {
+    if (recipientId === actorId || !allows(recipientId, type)) return;
+    const isRead =
+      ctx.now.getTime() - createdAt.getTime() >
+      NOTIFICATION_READ_AFTER_HOURS * HOUR_MS;
+    rows.push({
+      recipientId,
+      actorId,
+      type,
+      title: NOTIFICATION_TEXT[type].title,
+      body: NOTIFICATION_TEXT[type].body(usernames.get(actorId) ?? 'someone'),
+      resourceType: resource.type,
+      resourceId: resource.id,
+      metadata,
+      dedupeKey,
+      isRead,
+      readAt: isRead ? hoursAfter(createdAt, 1) : null,
+      createdAt,
+    });
+  };
+
+  const comments = await prisma.comment.findMany({
+    where: { postId: { in: postIds }, isDeleted: false },
+    select: {
+      id: true,
+      postId: true,
+      authorId: true,
+      parentId: true,
+      content: true,
+      createdAt: true,
+      post: { select: { authorId: true } },
+      parent: { select: { authorId: true } },
+    },
+  });
+
+  for (const c of comments) {
+    const replyTo = c.parent ? c.parent.authorId : c.post.authorId;
+    add(
+      c.parent ? 'COMMENT_REPLY' : 'POST_REPLY',
+      replyTo,
+      c.authorId,
+      { type: 'COMMENT', id: c.id },
+      { postId: c.postId, commentId: c.id, parentId: c.parentId },
+      `comment:${c.id}:reply`,
+      c.createdAt,
+    );
+
+    const mentioned = new Set(
+      [...c.content.matchAll(MENTION_PATTERN)].map((m) => m[1]),
+    );
+    for (const name of mentioned) {
+      const recipientId = userIdByName.get(name);
+      if (recipientId === undefined || recipientId === replyTo) continue;
+      add(
+        'USER_MENTION',
+        recipientId,
+        c.authorId,
+        { type: 'COMMENT', id: c.id },
+        { postId: c.postId, commentId: c.id },
+        `mention:comment:${c.id}`,
+        c.createdAt,
+      );
+    }
+  }
+
+  // Votes are stamped with the seed run, so the notification time is derived
+  // from the target instead: a stable offset after it, never in the future.
+  const voteTime = (target: Date, key: string) =>
+    new Date(
+      Math.min(
+        ctx.now.getTime(),
+        hoursAfter(target, 1 + (seedFromString(key) % 12)).getTime(),
+      ),
+    );
+
+  const postVotes = await prisma.postVote.findMany({
+    where: { postId: { in: postIds }, vote: 1 },
+    select: {
+      userId: true,
+      postId: true,
+      post: { select: { authorId: true, createdAt: true } },
+    },
+  });
+  for (const v of postVotes) {
+    const key = `vote:post:${v.postId}:user:${v.userId}`;
+    add(
+      'POST_UPVOTE',
+      v.post.authorId,
+      v.userId,
+      { type: 'POST', id: v.postId },
+      { postId: v.postId },
+      key,
+      voteTime(v.post.createdAt, key),
+    );
+  }
+
+  const commentVotes = await prisma.commentVote.findMany({
+    where: { comment: { postId: { in: postIds } }, vote: 1 },
+    select: {
+      userId: true,
+      commentId: true,
+      comment: { select: { authorId: true, postId: true, createdAt: true } },
+    },
+  });
+  for (const v of commentVotes) {
+    const key = `vote:comment:${v.commentId}:user:${v.userId}`;
+    add(
+      'COMMENT_UPVOTE',
+      v.comment.authorId,
+      v.userId,
+      { type: 'COMMENT', id: v.commentId },
+      { postId: v.comment.postId, commentId: v.commentId },
+      key,
+      voteTime(v.comment.createdAt, key),
+    );
+  }
+
+  const messages = await prisma.message.findMany({
+    where: { senderId: { in: [...ctx.userIds.values()] } },
+    select: {
+      id: true,
+      chatId: true,
+      senderId: true,
+      createdAt: true,
+      chat: { select: { userOneId: true, userTwoId: true } },
+    },
+  });
+  for (const m of messages) {
+    const recipientId =
+      m.chat.userOneId === m.senderId ? m.chat.userTwoId : m.chat.userOneId;
+    add(
+      'DIRECT_MESSAGE',
+      recipientId,
+      m.senderId,
+      { type: 'CHAT', id: m.chatId },
+      { chatId: m.chatId, messageId: m.id },
+      `message:${m.id}`,
+      m.createdAt,
+    );
+  }
+
+  for (let i = 0; i < rows.length; i += 500) {
+    await prisma.notification.createMany({
+      data: rows.slice(i, i + 500),
+      skipDuplicates: true,
+    });
+  }
+}
+
 async function printSummary(prisma: PrismaClient): Promise<void> {
   const [
     users,
@@ -546,6 +849,10 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     media,
     tokens,
     viewStats,
+    chatCount,
+    messages,
+    notifications,
+    unreadNotifications,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.community.count(),
@@ -557,6 +864,10 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     prisma.media.count(),
     prisma.refreshToken.count(),
     prisma.postViewStat.count(),
+    prisma.chat.count(),
+    prisma.message.count(),
+    prisma.notification.count(),
+    prisma.notification.count({ where: { isRead: false } }),
   ]);
 
   console.table({
@@ -570,6 +881,10 @@ async function printSummary(prisma: PrismaClient): Promise<void> {
     media,
     refresh_tokens: tokens,
     post_view_stats: viewStats,
+    chats: chatCount,
+    messages,
+    notifications,
+    unread_notifications: unreadNotifications,
   });
 }
 
@@ -602,6 +917,8 @@ async function main(): Promise<void> {
     ['refresh tokens', seedRefreshTokens],
     ['post reach history', seedPostInsights],
     ['denormalized counters', syncCounters],
+    ['chats & messages', seedChats],
+    ['notifications & preferences', seedNotifications],
   ];
 
   try {

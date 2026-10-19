@@ -3,14 +3,23 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  DomainEvent,
+  VoteCastEvent,
+  VoteTargetType,
+} from '../common/events/domain-events';
 import { VoteDto } from './dto/vote.dto';
 import { PostVoteResponseDto } from './dto/post-vote-response.dto';
 import { CommentVoteResponseDto } from './dto/comment-vote-response.dto';
 
 @Injectable()
 export class VotesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventEmitter2,
+  ) {}
 
   async voteOnPost(
     postId: number,
@@ -60,6 +69,16 @@ export class VotesService {
           },
         });
 
+        this.emitVote(
+          'POST',
+          post.id,
+          post.id,
+          userId,
+          post.authorId,
+          existingVote.vote,
+          0,
+        );
+
         return existingVote;
       }
 
@@ -94,6 +113,16 @@ export class VotesService {
         },
       });
 
+      this.emitVote(
+        'POST',
+        post.id,
+        post.id,
+        userId,
+        post.authorId,
+        existingVote.vote,
+        vote,
+      );
+
       return updatedVote;
     }
 
@@ -124,6 +153,8 @@ export class VotesService {
       where: { id: post.authorId },
       data: { karma: { increment: vote } },
     });
+
+    this.emitVote('POST', post.id, post.id, userId, post.authorId, 0, vote);
 
     return newVote;
   }
@@ -176,6 +207,16 @@ export class VotesService {
           },
         });
 
+        this.emitVote(
+          'COMMENT',
+          comment.id,
+          comment.postId,
+          userId,
+          comment.authorId,
+          existingVote.vote,
+          0,
+        );
+
         return existingVote;
       }
 
@@ -210,6 +251,16 @@ export class VotesService {
         },
       });
 
+      this.emitVote(
+        'COMMENT',
+        comment.id,
+        comment.postId,
+        userId,
+        comment.authorId,
+        existingVote.vote,
+        vote,
+      );
+
       return updatedVote;
     }
 
@@ -240,6 +291,16 @@ export class VotesService {
       where: { id: comment.authorId },
       data: { karma: { increment: vote } },
     });
+
+    this.emitVote(
+      'COMMENT',
+      comment.id,
+      comment.postId,
+      userId,
+      comment.authorId,
+      0,
+      vote,
+    );
 
     return newVote;
   }
@@ -274,5 +335,33 @@ export class VotesService {
     });
 
     return vote;
+  }
+
+  /** Published after the vote and its counters are written. */
+  private emitVote(
+    targetType: VoteTargetType,
+    targetId: number,
+    postId: number,
+    voterId: number,
+    targetAuthorId: number,
+    previousVote: number,
+    vote: number,
+  ): void {
+    if (previousVote === vote) {
+      return;
+    }
+
+    this.events.emit(
+      DomainEvent.VoteCast,
+      new VoteCastEvent(
+        targetType,
+        targetId,
+        postId,
+        voterId,
+        targetAuthorId,
+        previousVote,
+        vote,
+      ),
+    );
   }
 }

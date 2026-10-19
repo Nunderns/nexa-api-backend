@@ -3,8 +3,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { DomainEvent, MessageSentEvent } from '../common/events/domain-events';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import {
@@ -39,7 +41,10 @@ const UNIQUE_VIOLATION = 'P2002';
 
 @Injectable()
 export class ChatService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private events: EventEmitter2,
+  ) {}
 
   /**
    * Opens a one-to-one chat with another user, or returns the existing one.
@@ -195,30 +200,48 @@ export class ChatService {
     // outside would leave a window where the chat is deleted between the
     // check and the insert, and the insert would then fail with a raw
     // database error instead of a 404.
-    return await this.prisma.$transaction(async (tx) => {
-      const chat = await this.findChatForParticipant(chatId, currentUserId, tx);
-
-      if (!chat) {
-        throw new NotFoundException('Chat not found');
-      }
-
-      const message = await tx.message.create({
-        data: {
+    const { message, recipientId } = await this.prisma.$transaction(
+      async (tx) => {
+        const chat = await this.findChatForParticipant(
           chatId,
-          senderId: currentUserId,
-          content,
-          createdAt: now,
-          updatedAt: now,
-        },
-      });
+          currentUserId,
+          tx,
+        );
 
-      await tx.chat.update({
-        where: { id: chatId },
-        data: { lastMessageAt: now, updatedAt: now },
-      });
+        if (!chat) {
+          throw new NotFoundException('Chat not found');
+        }
 
-      return message;
-    });
+        const message = await tx.message.create({
+          data: {
+            chatId,
+            senderId: currentUserId,
+            content,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        await tx.chat.update({
+          where: { id: chatId },
+          data: { lastMessageAt: now, updatedAt: now },
+        });
+
+        const recipientId =
+          chat.userOneId === currentUserId ? chat.userTwoId : chat.userOneId;
+
+        return { message, recipientId };
+      },
+    );
+
+    // Emitted only once the transaction has committed, so a listener can
+    // never observe a message that was rolled back.
+    this.events.emit(
+      DomainEvent.MessageSent,
+      new MessageSentEvent(message.id, chatId, currentUserId, recipientId),
+    );
+
+    return message;
   }
 
   /**

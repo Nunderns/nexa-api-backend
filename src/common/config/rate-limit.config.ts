@@ -151,3 +151,54 @@ export const INSIGHTS_IP_RATE_LIMIT = {
  * `1` is the common single Nginx / platform-load-balancer setup.
  */
 export const TRUST_PROXY_HOPS = positiveInt(process.env.TRUST_PROXY_HOPS, 1);
+
+/**
+ * Per-user budgets for the writes that can notify someone else.
+ *
+ * Every comment, post, mention or upvote can land in another user's
+ * notification inbox, so these are what actually bound notification spam;
+ * the notification endpoints themselves only read the caller's own data.
+ * Keyed on the account, so rotating IPs does not reset them.
+ */
+export const COMMENT_WRITE_RATE_LIMIT = {
+  limit: positiveInt(process.env.COMMENT_WRITE_RATE_LIMIT_MAX, 20),
+  ttl: positiveInt(process.env.COMMENT_WRITE_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+export const POST_WRITE_RATE_LIMIT = {
+  limit: positiveInt(process.env.POST_WRITE_RATE_LIMIT_MAX, 10),
+  ttl: positiveInt(process.env.POST_WRITE_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+export const VOTE_RATE_LIMIT = {
+  limit: positiveInt(process.env.VOTE_RATE_LIMIT_MAX, 60),
+  ttl: positiveInt(process.env.VOTE_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/** Per-user budget for changing notification preferences. */
+export const NOTIFICATION_PREFERENCES_RATE_LIMIT = {
+  limit: positiveInt(process.env.NOTIFICATION_PREFERENCES_RATE_LIMIT_MAX, 10),
+  ttl: positiveInt(
+    process.env.NOTIFICATION_PREFERENCES_RATE_LIMIT_WINDOW_MS,
+    60_000,
+  ),
+};
+
+/**
+ * Per-user budget for bulk notification operations (mark all as read), which
+ * touch every unread row of the caller in one statement.
+ */
+export const NOTIFICATION_BULK_RATE_LIMIT = {
+  limit: positiveInt(process.env.NOTIFICATION_BULK_RATE_LIMIT_MAX, 10),
+  ttl: positiveInt(process.env.NOTIFICATION_BULK_RATE_LIMIT_WINDOW_MS, 60_000),
+};
+
+/**
+ * Per-IP budget for opening notification WebSocket connections. Each attempt
+ * costs a JWT verification and a user lookup, and a reconnect loop gone wrong
+ * on the client would otherwise hammer both.
+ */
+export const WS_CONNECT_IP_RATE_LIMIT = {
+  limit: positiveInt(process.env.WS_CONNECT_IP_RATE_LIMIT_MAX, 30),
+  ttl: positiveInt(process.env.WS_CONNECT_IP_RATE_LIMIT_WINDOW_MS, 60_000),
+};

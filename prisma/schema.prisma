@@ -25,6 +25,25 @@ enum PostType {
   LINK
 }
 
+enum NotificationType {
+  POST_REPLY
+  COMMENT_REPLY
+  USER_MENTION
+  POST_UPVOTE
+  COMMENT_UPVOTE
+  DIRECT_MESSAGE
+  SYSTEM
+}
+
+/// What `Notification.resourceId` points at. There is no foreign key behind
+/// it (the target table depends on the type), so a deleted resource simply
+/// leaves a notification that resolves to a 404 on the client.
+enum NotificationResourceType {
+  POST
+  COMMENT
+  CHAT
+}
+
 model User {
   id                      Int       @id @default(autoincrement())
   username                String    @unique @db.VarChar(30)
@@ -54,6 +73,9 @@ model User {
   chatsAsFirstParticipant Chat[]                 @relation("ChatParticipantOne")
   chatsAsSecondParticipant Chat[]                @relation("ChatParticipantTwo")
   sentMessages            Message[]
+  notificationsReceived   Notification[]         @relation("NotificationRecipient")
+  notificationsTriggered  Notification[]         @relation("NotificationActor")
+  notificationPreference  NotificationPreference?
 
   @@map("users")
 }
@@ -341,4 +363,64 @@ model Media {
   comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
 
   @@map("media")
+}
+
+/// Persistent, per-recipient notification. The table is the source of truth;
+/// the WebSocket push is only a hint that something new is here.
+///
+/// Notifications never carry user-written text: `title` and `body` are built
+/// server-side from fixed templates and usernames (which are restricted to
+/// `[A-Za-z0-9_]`), and `metadata` only holds identifiers. Message contents in
+/// particular are never copied here.
+model Notification {
+  id           String                    @id @default(uuid()) @db.Uuid
+  recipientId  Int                       @map("recipient_id")
+  /// Null for system notifications, or once the actor's account is deleted.
+  actorId      Int?                      @map("actor_id")
+  type         NotificationType
+  title        String                    @db.VarChar(120)
+  body         String                    @db.VarChar(300)
+  resourceType NotificationResourceType? @map("resource_type")
+  resourceId   Int?                      @map("resource_id")
+  metadata     Json?
+  /// Idempotency key for the event that produced the notification, e.g.
+  /// `comment:42:reply` or `vote:post:7:user:3`. Unique per recipient, so a
+  /// retried or duplicated event and an unchanged edit can never notify the
+  /// same person twice.
+  dedupeKey    String?                   @map("dedupe_key") @db.VarChar(120)
+  isRead       Boolean                   @default(false) @map("is_read")
+  readAt       DateTime?                 @map("read_at") @db.Timestamptz
+  createdAt    DateTime                  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime                  @updatedAt @map("updated_at") @db.Timestamptz
+
+  recipient User  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@unique([recipientId, dedupeKey])
+  /// Newest-first listing with a stable `(createdAt, id)` cursor.
+  @@index([recipientId, createdAt(sort: Desc), id(sort: Desc)])
+  /// Unread listing and the unread count.
+  @@index([recipientId, isRead, createdAt(sort: Desc)])
+  @@index([actorId])
+  @@map("notifications")
+}
+
+/// Per-user notification settings. A missing row means every category is on,
+/// so existing users need no backfill.
+///
+/// A disabled category suppresses the notification entirely: nothing is
+/// stored and nothing is pushed. `SYSTEM` notifications have no switch.
+model NotificationPreference {
+  userId         Int      @id @map("user_id")
+  postReplies    Boolean  @default(true) @map("post_replies")
+  commentReplies Boolean  @default(true) @map("comment_replies")
+  mentions       Boolean  @default(true)
+  votes          Boolean  @default(true)
+  directMessages Boolean  @default(true) @map("direct_messages")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
 }

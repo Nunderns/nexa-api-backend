@@ -2,10 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import {
+  DomainEvent,
+  PostCreatedEvent,
+  PostUpdatedEvent,
+} from '../common/events/domain-events';
 import { CommunityRole, PostType } from '@prisma/client';
 
 describe('PostsService', () => {
   let service: PostsService;
+
+  const mockEvents = { emit: jest.fn() };
 
   const mockPrismaService = {
     post: {
@@ -70,6 +78,7 @@ describe('PostsService', () => {
           provide: PrismaService,
           useValue: mockPrismaService,
         },
+        { provide: EventEmitter2, useValue: mockEvents },
       ],
     }).compile();
 
@@ -517,6 +526,44 @@ describe('PostsService', () => {
       );
 
       await expect(service.unlock(1, 1)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('domain events', () => {
+    it('should publish post.created after the post is stored', async () => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+      mockPrismaService.post.create.mockResolvedValue(mockPost);
+
+      await service.create(
+        {
+          communityId: 1,
+          title: 'Test Post',
+          content: 'Test content',
+          postType: PostType.TEXT,
+        },
+        1,
+      );
+
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.PostCreated,
+        new PostCreatedEvent(1, 1, 'Test Post', 'Test content'),
+      );
+    });
+
+    it('should publish post.updated only when title or content change', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.post.update.mockResolvedValue(mockPost);
+
+      await service.update(1, { postType: PostType.LINK }, 1);
+      expect(mockEvents.emit).not.toHaveBeenCalled();
+
+      await service.update(1, { content: 'Test content' }, 1);
+      expect(mockEvents.emit).toHaveBeenCalledWith(
+        DomainEvent.PostUpdated,
+        new PostUpdatedEvent(1, 1, 'Test Post', 'Test content'),
+      );
     });
   });
 });

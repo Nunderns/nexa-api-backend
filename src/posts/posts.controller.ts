@@ -17,7 +17,12 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
+import {
+  GLOBAL_RATE_LIMIT,
+  POST_WRITE_RATE_LIMIT,
+  USER_THROTTLER_NAME,
+} from '../common/config/rate-limit.config';
+import { UserThrottleGuard } from '../common/guards/user-throttle.guard';
 import { PostsService } from './posts.service';
 import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
@@ -31,9 +36,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class PostsController {
   constructor(private readonly postsService: PostsService) {}
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: POST_WRITE_RATE_LIMIT,
+  })
   @Post()
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a new post' })
   @ApiResponse({
@@ -121,9 +129,12 @@ export class PostsController {
     return this.postsService.findOne(+id);
   }
 
-  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Throttle({
+    default: GLOBAL_RATE_LIMIT,
+    [USER_THROTTLER_NAME]: POST_WRITE_RATE_LIMIT,
+  })
   @Put(':id')
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, UserThrottleGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Update post' })
   @ApiResponse({

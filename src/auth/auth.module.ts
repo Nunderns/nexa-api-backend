@@ -26,6 +26,8 @@ import { Env } from '../common/config/env.validation';
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  // JwtModule and JwtStrategy are shared with the notification gateway, which
+  // authenticates WebSocket handshakes with the same secret and user checks.
+  exports: [AuthService, JwtModule, JwtStrategy],
 })
 export class AuthModule {}

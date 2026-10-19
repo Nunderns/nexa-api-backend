@@ -6,6 +6,7 @@ import {
   type ErrorRequestHandler,
 } from 'express';
 import helmet from 'helmet';
+import { SecureIoAdapter } from '../websocket/secure-io.adapter';
 import { UPLOAD_DIR, UPLOAD_ROUTE } from '../../media/media-storage.config';
 import { TransformInterceptor } from '../interceptors/transform.interceptor';
 import { HttpExceptionFilter } from '../filters/http-exception.filter';
@@ -44,6 +45,7 @@ export function configureApp(app: INestApplication): INestApplication {
   app.useGlobalInterceptors(new TransformInterceptor());
   app.useGlobalFilters(new HttpExceptionFilter());
   app.use(helmet());
+  app.useWebSocketAdapter(new SecureIoAdapter(app));
   app.enableCors({
     origin: allowedOrigins(),
     // Auth is a bearer token, never a cookie.
