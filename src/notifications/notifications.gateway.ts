@@ -104,7 +104,7 @@ export class NotificationsGateway
   );
 
   @WebSocketServer()
-  private server?: Namespace;
+  private readonly server?: Namespace;
 
   constructor(
     private readonly jwt: JwtService,

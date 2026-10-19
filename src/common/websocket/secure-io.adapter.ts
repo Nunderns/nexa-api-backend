@@ -1,5 +1,5 @@
 import { IoAdapter } from '@nestjs/platform-socket.io';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage } from 'node:http';
 import type { ServerOptions } from 'socket.io';
 import { allowedOrigins } from '../config/http-security.config';
 

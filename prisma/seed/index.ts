@@ -12,7 +12,12 @@ import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
-import { CommunityRole, NotificationType, Prisma } from '@prisma/client';
+import {
+  CommunityRole,
+  NotificationPreference,
+  NotificationType,
+  Prisma,
+} from '@prisma/client';
 import {
   chats,
   communities,
@@ -620,16 +625,30 @@ const NOTIFICATION_TEXT: Record<
   },
 };
 
-/** Notifications older than this are seeded as read. */
 const NOTIFICATION_READ_AFTER_HOURS = 48;
 
-/**
- * Notifications derived from the seeded activity, with the same dedupe keys
- * the live listeners use. `skipDuplicates` on the unique
- * `(recipient_id, dedupe_key)` index makes reruns insert nothing new, and
- * means the seed and the running app can never double-notify for the same
- * event. Preferences are applied the way the app applies them.
- */
+function preferenceAllows(
+  p: NotificationPreference | undefined,
+  type: NotificationType,
+): boolean {
+  if (!p) return true;
+  switch (type) {
+    case 'POST_REPLY':
+      return p.postReplies;
+    case 'COMMENT_REPLY':
+      return p.commentReplies;
+    case 'USER_MENTION':
+      return p.mentions;
+    case 'POST_UPVOTE':
+    case 'COMMENT_UPVOTE':
+      return p.votes;
+    case 'DIRECT_MESSAGE':
+      return p.directMessages;
+    default:
+      return true;
+  }
+}
+
 async function seedNotifications(ctx: SeedContext): Promise<void> {
   const { prisma } = ctx;
   const postIds = [...ctx.postIds.values()];
@@ -647,25 +666,8 @@ async function seedNotifications(ctx: SeedContext): Promise<void> {
   const preferences = new Map(
     (await prisma.notificationPreference.findMany()).map((p) => [p.userId, p]),
   );
-  const allows = (userId: number, type: NotificationType): boolean => {
-    const p = preferences.get(userId);
-    if (!p) return true;
-    switch (type) {
-      case 'POST_REPLY':
-        return p.postReplies;
-      case 'COMMENT_REPLY':
-        return p.commentReplies;
-      case 'USER_MENTION':
-        return p.mentions;
-      case 'POST_UPVOTE':
-      case 'COMMENT_UPVOTE':
-        return p.votes;
-      case 'DIRECT_MESSAGE':
-        return p.directMessages;
-      default:
-        return true;
-    }
-  };
+  const allows = (userId: number, type: NotificationType): boolean =>
+    preferenceAllows(preferences.get(userId), type);
 
   const usernames = new Map(
     (

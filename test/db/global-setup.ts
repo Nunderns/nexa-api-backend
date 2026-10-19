@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
-import { execFile } from 'child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'util';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
