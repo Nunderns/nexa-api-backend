@@ -1,9 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { execFile } from 'node:child_process';
-import { promisify } from 'util';
-import { readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { promisify } from 'node:util';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Starts a throwaway PostgreSQL (PGlite, in-process WASM) for the e2e run and

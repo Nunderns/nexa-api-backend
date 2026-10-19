@@ -39,6 +39,22 @@ describe('Notifications persistence (integration)', () => {
     ...overrides,
   });
 
+  async function seedNotifications(count: number, sameTimestamp = false) {
+    const createdAt = new Date('2026-10-16T12:00:00.000Z');
+    await prisma.notification.createMany({
+      data: Array.from({ length: count }, (_, i) => ({
+        recipientId: alice,
+        actorId: bob,
+        type: NotificationType.POST_UPVOTE,
+        title: 'New upvote',
+        body: `n${i}`,
+        createdAt: sameTimestamp
+          ? createdAt
+          : new Date(createdAt.getTime() + i * 1000),
+      })),
+    });
+  }
+
   beforeAll(async () => {
     prisma = createTestPrisma();
     await prisma.$connect();
@@ -181,22 +197,6 @@ describe('Notifications persistence (integration)', () => {
   });
 
   describe('cursor pagination', () => {
-    async function seedNotifications(count: number, sameTimestamp = false) {
-      const createdAt = new Date('2026-10-16T12:00:00.000Z');
-      await prisma.notification.createMany({
-        data: Array.from({ length: count }, (_, i) => ({
-          recipientId: alice,
-          actorId: bob,
-          type: NotificationType.POST_UPVOTE,
-          title: 'New upvote',
-          body: `n${i}`,
-          createdAt: sameTimestamp
-            ? createdAt
-            : new Date(createdAt.getTime() + i * 1000),
-        })),
-      });
-    }
-
     async function collectAll(limit: number, unreadOnly = false) {
       const seen: string[] = [];
       let cursor: string | undefined;

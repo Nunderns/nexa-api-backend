@@ -57,8 +57,9 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
     return;
   }
 
+  const tableList = tables.map((t) => `"${t.tablename}"`).join(', ');
   await prisma.$executeRawUnsafe(
-    `TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} RESTART IDENTITY CASCADE`,
+    `TRUNCATE ${tableList} RESTART IDENTITY CASCADE`,
   );
 }
 
