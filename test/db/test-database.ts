@@ -15,7 +15,7 @@ import { PrismaService } from '../../src/prisma/prisma.service';
 export function createTestPrisma(): PrismaService {
   const url = process.env.TEST_DATABASE_URL;
 
-  if (!url || !url.includes('@127.0.0.1:')) {
+  if (!url?.includes('@127.0.0.1:')) {
     throw new Error(
       'TEST_DATABASE_URL is not the local test database; is the e2e global setup configured?',
     );

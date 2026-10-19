@@ -550,7 +550,7 @@ async function seedChats(ctx: SeedContext): Promise<void> {
     // Canonical order, as the `chats` check constraint requires.
     const [userOneId, userTwoId] = [Math.min(...ids), Math.max(...ids)];
 
-    const { id: chatId } = await ctx.prisma.chat.upsert({
+    const { id: chatId } = ctx.prisma.chat.upsert({
       where: { userOneId_userTwoId: { userOneId, userTwoId } },
       update: {},
       create: { userOneId, userTwoId },
@@ -598,7 +598,7 @@ async function seedChats(ctx: SeedContext): Promise<void> {
  * application code.
  */
 const MENTION_PATTERN =
-  /(?<![A-Za-z0-9_@])@([A-Za-z0-9_]{3,30})(?![A-Za-z0-9_])/g;
+  /(?<![\w@])@(\w{3,30})(?!\w)/g;
 
 /** Mirrors `src/notifications/notification-templates.ts`. */
 const NOTIFICATION_TEXT: Record<

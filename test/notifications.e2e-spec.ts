@@ -364,9 +364,8 @@ describe('Notifications (e2e)', () => {
         .expect(201);
       await waitFor(async () => (await notificationsOf(alice)).length === 1);
 
-      // Remove and re-cast: still a single notification (cooldown by key).
       for (const vote of [0, 1, 1]) {
-        await http()
+        http()
           .post(`/votes/post/${postId}`)
           .set(auth(bob))
           .send({ vote })

@@ -10,8 +10,7 @@ import { MAX_MENTIONS_PER_CONTENT } from './notifications.constants';
  *
  * Both quantifiers are bounded, so the scan is linear in the input length.
  */
-const MENTION_PATTERN =
-  /(?<![A-Za-z0-9_@])@([A-Za-z0-9_]{3,30})(?![A-Za-z0-9_])/g;
+const MENTION_PATTERN = /(?<![\w@])@(\w{3,30})(?!\w)/g;
 
 /**
  * Distinct usernames mentioned in the given texts, in order of first

@@ -191,7 +191,7 @@ export class NotificationsService {
       type: query.type,
     });
 
-    const last = rows[rows.length - 1];
+    const last = rows.at(-1);
 
     return {
       data: rows.map((row) => this.toDto(row)),

@@ -55,6 +55,20 @@ describe('Notifications persistence (integration)', () => {
     });
   }
 
+  async function collectAll(limit: number, unreadOnly = false) {
+    const seen: string[] = [];
+    let cursor: string | undefined;
+
+    for (let guard = 0; guard < 50; guard++) {
+      const page = await service.list(alice, { limit, cursor, unreadOnly });
+      seen.push(...page.data.map((n) => n.id));
+      if (!page.nextCursor) break;
+      cursor = page.nextCursor;
+    }
+
+    return seen;
+  }
+
   beforeAll(async () => {
     prisma = createTestPrisma();
     await prisma.$connect();
@@ -197,20 +211,6 @@ describe('Notifications persistence (integration)', () => {
   });
 
   describe('cursor pagination', () => {
-    async function collectAll(limit: number, unreadOnly = false) {
-      const seen: string[] = [];
-      let cursor: string | undefined;
-
-      for (let guard = 0; guard < 50; guard++) {
-        const page = await service.list(alice, { limit, cursor, unreadOnly });
-        seen.push(...page.data.map((n) => n.id));
-        if (!page.nextCursor) break;
-        cursor = page.nextCursor;
-      }
-
-      return seen;
-    }
-
     it('walks every row exactly once, newest first', async () => {
       await seedNotifications(23);
 
