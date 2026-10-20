@@ -29,6 +29,15 @@ describe('CommunitiesService', () => {
       update: jest.fn(),
       count: jest.fn(),
     },
+    postView: {
+      groupBy: jest.fn(),
+    },
+    post: {
+      count: jest.fn(),
+    },
+    comment: {
+      count: jest.fn(),
+    },
   };
 
   const mockCommunity = {
@@ -393,6 +402,113 @@ describe('CommunitiesService', () => {
 
       expect(result).toHaveProperty('data');
       expect(result.data).toHaveLength(1);
+    });
+  });
+
+  describe('getMembership', () => {
+    it('should return the role of an active member', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+
+      await expect(service.getMembership(1, 1)).resolves.toEqual({
+        role: CommunityRole.OWNER,
+        isBanned: false,
+      });
+    });
+
+    it('should return a null role for non-members', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.getMembership(1, 2)).resolves.toEqual({
+        role: null,
+        isBanned: false,
+      });
+    });
+
+    it('should hide the role of a banned member', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
+      mockPrismaService.communityMember.findUnique.mockResolvedValue({
+        ...mockMembership,
+        role: CommunityRole.MODERATOR,
+        bannedAt: new Date(),
+      });
+
+      await expect(service.getMembership(1, 1)).resolves.toEqual({
+        role: null,
+        isBanned: true,
+      });
+    });
+
+    it('should throw NotFoundException for an unknown community', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(null);
+
+      await expect(service.getMembership(999, 1)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('getWeeklyStats', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+      // A Wednesday, so the week started two days earlier.
+      jest.setSystemTime(new Date('2026-10-21T15:30:00Z'));
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('should count distinct viewers and posts plus comments since Monday UTC', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
+      mockPrismaService.postView.groupBy.mockResolvedValue([
+        { viewerKey: 'a' },
+        { viewerKey: 'b' },
+      ]);
+      mockPrismaService.post.count.mockResolvedValue(3);
+      mockPrismaService.comment.count.mockResolvedValue(4);
+
+      const result = await service.getWeeklyStats(1);
+
+      const weekStart = new Date('2026-10-19T00:00:00Z');
+      expect(result).toEqual({ weekStart, visitors: 2, contributions: 7 });
+      expect(mockPrismaService.postView.groupBy).toHaveBeenCalledWith({
+        by: ['viewerKey'],
+        where: { post: { communityId: 1 }, viewedAt: { gte: weekStart } },
+      });
+    });
+
+    it('should hide a private community from non-members', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        ...mockCommunity,
+        isPrivate: true,
+      });
+
+      await expect(service.getWeeklyStats(1)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockPrismaService.postView.groupBy).not.toHaveBeenCalled();
+    });
+
+    it('should report a private community to its members', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        ...mockCommunity,
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+      mockPrismaService.postView.groupBy.mockResolvedValue([]);
+      mockPrismaService.post.count.mockResolvedValue(0);
+      mockPrismaService.comment.count.mockResolvedValue(0);
+
+      await expect(service.getWeeklyStats(1, 1)).resolves.toMatchObject({
+        visitors: 0,
+        contributions: 0,
+      });
     });
   });
 
