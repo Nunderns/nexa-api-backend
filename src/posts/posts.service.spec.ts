@@ -24,6 +24,7 @@ describe('PostsService', () => {
       count: jest.fn(),
     },
     community: {
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
     communityMember: {
@@ -83,6 +84,9 @@ describe('PostsService', () => {
     }).compile();
 
     service = module.get<PostsService>(PostsService);
+    mockPrismaService.community.findUnique.mockResolvedValue({
+      isPrivate: false,
+    });
   });
 
   afterEach(() => {
@@ -160,7 +164,7 @@ describe('PostsService', () => {
       expect(result).toHaveProperty('data');
       expect(result.data).toHaveLength(1);
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
-        where: { isDeleted: false },
+        where: { isDeleted: false, community: { isPrivate: false } },
         skip: 0,
         take: 20,
         include: expect.any(Object),
@@ -176,7 +180,7 @@ describe('PostsService', () => {
       await service.findAll(1, 20, 'new');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
-        where: { isDeleted: false },
+        where: { isDeleted: false, community: { isPrivate: false } },
         skip: 0,
         take: 20,
         include: expect.any(Object),
@@ -192,7 +196,7 @@ describe('PostsService', () => {
       await service.findAll(1, 20, 'top');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
-        where: { isDeleted: false },
+        where: { isDeleted: false, community: { isPrivate: false } },
         skip: 0,
         take: 20,
         include: expect.any(Object),
@@ -207,7 +211,7 @@ describe('PostsService', () => {
       await service.findAll(1, 20, 'featured');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
-        where: { isDeleted: false },
+        where: { isDeleted: false, community: { isPrivate: false } },
         skip: 0,
         take: 20,
         include: expect.any(Object),
@@ -226,7 +230,9 @@ describe('PostsService', () => {
       await service.findAll(1, 20, 'new', 'all');
 
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { isDeleted: false } }),
+        expect.objectContaining({
+          where: { isDeleted: false, community: { isPrivate: false } },
+        }),
       );
     });
 
@@ -242,6 +248,27 @@ describe('PostsService', () => {
 
       expect(findManyWhere.createdAt).toBeDefined();
       expect(countWhere).toEqual(findManyWhere);
+    });
+
+    it('should include private communities the viewer belongs to', async () => {
+      mockPrismaService.post.findMany.mockResolvedValue([]);
+      mockPrismaService.post.count.mockResolvedValue(0);
+
+      await service.findAll(1, 20, 'hot', 'all', 7);
+
+      expect(mockPrismaService.post.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            isDeleted: false,
+            community: {
+              OR: [
+                { isPrivate: false },
+                { members: { some: { userId: 7, bannedAt: null } } },
+              ],
+            },
+          },
+        }),
+      );
     });
   });
 
@@ -280,6 +307,57 @@ describe('PostsService', () => {
         where: findManyWhere,
       });
     });
+
+    it('should reject anonymous viewers of a private community', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+
+      await expect(service.findByCommunity(1)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockPrismaService.post.findMany).not.toHaveBeenCalled();
+    });
+
+    it('should reject non-members of a private community', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.findByCommunity(1, 1, 20, 'hot', 'all', 7),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should reject banned members of a private community', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue({
+        ...mockMembership,
+        bannedAt: new Date(),
+      });
+
+      await expect(
+        service.findByCommunity(1, 1, 20, 'hot', 'all', 1),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should list a private community for its members', async () => {
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+      mockPrismaService.post.findMany.mockResolvedValue([mockPost]);
+      mockPrismaService.post.count.mockResolvedValue(1);
+
+      const result = await service.findByCommunity(1, 1, 20, 'hot', 'all', 1);
+
+      expect(result.data).toHaveLength(1);
+    });
   });
 
   describe('findOne', () => {
@@ -299,6 +377,28 @@ describe('PostsService', () => {
       mockPrismaService.post.findUnique.mockResolvedValue(null);
 
       await expect(service.findOne(999)).rejects.toThrow(NotFoundException);
+    });
+
+    it('should hide a private community post from non-members', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+
+      await expect(service.findOne(1, 7)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should show a private community post to members', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.community.findUnique.mockResolvedValue({
+        isPrivate: true,
+      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        mockMembership,
+      );
+
+      await expect(service.findOne(1, 1)).resolves.toEqual(mockPost);
     });
   });
 

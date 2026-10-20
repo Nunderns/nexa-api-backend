@@ -231,7 +231,11 @@ describe('UsersService', () => {
       expect(result).toHaveProperty('total');
       expect(result.data).toHaveLength(1);
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith({
-        where: { authorId: 1, isDeleted: false },
+        where: {
+          authorId: 1,
+          isDeleted: false,
+          community: { isPrivate: false },
+        },
         skip: 0,
         take: 20,
         include: expect.any(Object),

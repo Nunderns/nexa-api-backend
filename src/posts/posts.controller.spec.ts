@@ -123,16 +123,17 @@ describe('PostsController', () => {
   });
 
   describe('findAll', () => {
-    it('should forward pagination, sortBy and time', async () => {
+    it('should forward pagination, sortBy, time and the viewer', async () => {
       mockPostsService.findAll.mockResolvedValue(paginated);
 
-      await controller.findAll({ page: 2, limit: 10 }, 'featured', 'week');
+      await controller.findAll({ page: 2, limit: 10 }, 'featured', 'week', 7);
 
       expect(mockPostsService.findAll).toHaveBeenCalledWith(
         2,
         10,
         'featured',
         'week',
+        7,
       );
     });
 
@@ -146,12 +147,13 @@ describe('PostsController', () => {
         20,
         'hot',
         'all',
+        undefined,
       );
     });
   });
 
   describe('findByCommunity', () => {
-    it('should convert the community id and forward pagination, sortBy and time', async () => {
+    it('should convert the community id and forward pagination, sortBy, time and the viewer', async () => {
       mockPostsService.findByCommunity.mockResolvedValue(paginated);
 
       await controller.findByCommunity(
@@ -159,6 +161,7 @@ describe('PostsController', () => {
         { page: 1, limit: 20 },
         'top',
         'today',
+        7,
       );
 
       expect(mockPostsService.findByCommunity).toHaveBeenCalledWith(
@@ -167,6 +170,7 @@ describe('PostsController', () => {
         20,
         'top',
         'today',
+        7,
       );
     });
   });
@@ -176,9 +180,9 @@ describe('PostsController', () => {
       const post = { id: 1 };
       mockPostsService.findOne.mockResolvedValue(post);
 
-      const result = await controller.findOne('1');
+      const result = await controller.findOne('1', 7);
 
-      expect(mockPostsService.findOne).toHaveBeenCalledWith(1);
+      expect(mockPostsService.findOne).toHaveBeenCalledWith(1, 7);
       expect(result).toBe(post);
     });
   });

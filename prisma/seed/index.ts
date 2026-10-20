@@ -597,8 +597,7 @@ async function seedChats(ctx: SeedContext): Promise<void> {
  * imported, like `INSIGHTS_CHART_HOURS`, so the seed does not depend on
  * application code.
  */
-const MENTION_PATTERN =
-  /(?<![\w@])@(\w{3,30})(?!\w)/g;
+const MENTION_PATTERN = /(?<![\w@])@(\w{3,30})(?!\w)/g;
 
 /** Mirrors `src/notifications/notification-templates.ts`. */
 const NOTIFICATION_TEXT: Record<
@@ -647,6 +646,20 @@ function preferenceAllows(
     default:
       return true;
   }
+}
+
+/** Known users @-mentioned in `content`, once each, minus `excludeId`. */
+function mentionRecipients(
+  content: string,
+  userIdByName: Map<string, number>,
+  excludeId: number,
+): number[] {
+  const ids = new Set<number>();
+  for (const [, name] of content.matchAll(MENTION_PATTERN)) {
+    const id = userIdByName.get(name);
+    if (id !== undefined && id !== excludeId) ids.add(id);
+  }
+  return [...ids];
 }
 
 async function seedNotifications(ctx: SeedContext): Promise<void> {
@@ -735,12 +748,11 @@ async function seedNotifications(ctx: SeedContext): Promise<void> {
       c.createdAt,
     );
 
-    const mentioned = new Set(
-      [...c.content.matchAll(MENTION_PATTERN)].map((m) => m[1]),
-    );
-    for (const name of mentioned) {
-      const recipientId = userIdByName.get(name);
-      if (recipientId === undefined || recipientId === replyTo) continue;
+    for (const recipientId of mentionRecipients(
+      c.content,
+      userIdByName,
+      replyTo,
+    )) {
       add(
         'USER_MENTION',
         recipientId,

@@ -167,12 +167,12 @@ describe('UsersController', () => {
   });
 
   describe('getUserPosts', () => {
-    it('should convert the id and forward the pagination', async () => {
+    it('should convert the id and forward the pagination and viewer', async () => {
       mockUsersService.getUserPosts.mockResolvedValue(paginated);
 
-      await controller.getUserPosts('1', { page: 3, limit: 5 });
+      await controller.getUserPosts('1', { page: 3, limit: 5 }, 7);
 
-      expect(mockUsersService.getUserPosts).toHaveBeenCalledWith(1, 3, 5);
+      expect(mockUsersService.getUserPosts).toHaveBeenCalledWith(1, 3, 5, 7);
     });
   });
 

@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { visibleCommunityWhere } from '../posts/post-visibility';
 
 const PUBLIC_USER_FIELDS = {
   id: true,
@@ -107,12 +108,22 @@ export class UsersService {
     });
   }
 
-  async getUserPosts(userId: number, page: number = 1, limit: number = 20) {
+  async getUserPosts(
+    userId: number,
+    page: number = 1,
+    limit: number = 20,
+    viewerId?: number,
+  ) {
     const skip = (page - 1) * limit;
+    const where = {
+      authorId: userId,
+      isDeleted: false,
+      community: visibleCommunityWhere(viewerId),
+    };
 
     const [posts, total] = await Promise.all([
       this.prisma.post.findMany({
-        where: { authorId: userId, isDeleted: false },
+        where,
         skip,
         take: limit,
         include: {
@@ -134,9 +145,7 @@ export class UsersService {
         },
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.post.count({
-        where: { authorId: userId, isDeleted: false },
-      }),
+      this.prisma.post.count({ where }),
     ]);
 
     return {

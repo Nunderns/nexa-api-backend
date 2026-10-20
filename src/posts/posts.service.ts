@@ -14,6 +14,7 @@ import { CreatePostDto } from './dto/create-post.dto';
 import { UpdatePostDto } from './dto/update-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
 import { CommunityRole, Prisma } from '@prisma/client';
+import { visibleCommunityWhere } from './post-visibility';
 
 @Injectable()
 export class PostsService {
@@ -92,13 +93,17 @@ export class PostsService {
     limit: number = 20,
     sortBy: string = 'hot',
     time: string = 'all',
+    viewerId?: number,
   ) {
     const skip = (page - 1) * limit;
 
     const orderBy = this.buildOrderBy(sortBy);
     const timeStart = this.getTimeRangeStart(time);
 
-    const where: Prisma.PostWhereInput = { isDeleted: false };
+    const where: Prisma.PostWhereInput = {
+      isDeleted: false,
+      community: visibleCommunityWhere(viewerId),
+    };
     if (timeStart) {
       where.createdAt = { gte: timeStart };
     }
@@ -146,7 +151,10 @@ export class PostsService {
     limit: number = 20,
     sortBy: string = 'hot',
     time: string = 'all',
+    viewerId?: number,
   ) {
+    await this.assertCanViewCommunity(communityId, viewerId);
+
     const skip = (page - 1) * limit;
 
     const orderBy = this.buildOrderBy(sortBy);
@@ -194,7 +202,7 @@ export class PostsService {
     };
   }
 
-  async findOne(id: number): Promise<PostResponseDto> {
+  async findOne(id: number, viewerId?: number): Promise<PostResponseDto> {
     const post = await this.prisma.post.findUnique({
       where: { id },
       include: {
@@ -221,6 +229,8 @@ export class PostsService {
     if (!post) {
       throw new NotFoundException('Post not found');
     }
+
+    await this.assertCanViewCommunity(post.communityId, viewerId);
 
     return post;
   }
@@ -444,6 +454,41 @@ export class PostsService {
       where: { id },
       data: { isLocked: false },
     });
+  }
+
+  /**
+   * Private communities only expose their posts to members who aren't banned.
+   * Unknown community ids pass through so listings keep returning an empty page.
+   */
+  private async assertCanViewCommunity(
+    communityId: number,
+    viewerId?: number,
+  ): Promise<void> {
+    const community = await this.prisma.community.findUnique({
+      where: { id: communityId },
+      select: { isPrivate: true },
+    });
+
+    if (!community?.isPrivate) {
+      return;
+    }
+
+    const membership = viewerId
+      ? await this.prisma.communityMember.findUnique({
+          where: {
+            communityId_userId: {
+              communityId,
+              userId: viewerId,
+            },
+          },
+        })
+      : null;
+
+    if (!membership || membership.bannedAt) {
+      throw new ForbiddenException(
+        'You must be a member of this private community to view its posts',
+      );
+    }
   }
 
   private buildOrderBy(
