@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { CommunitiesService } from './communities.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -396,10 +397,16 @@ describe('CommunitiesService', () => {
   });
 
   describe('updateMemberRole', () => {
+    const targetMembership = {
+      ...mockMembership,
+      userId: 2,
+      role: CommunityRole.MEMBER,
+    };
+
     it('should allow owner to update member role', async () => {
-      mockPrismaService.communityMember.findUnique.mockResolvedValue(
-        mockMembership,
-      );
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce(targetMembership);
       mockPrismaService.communityMember.update.mockResolvedValue(
         mockMembership,
       );
@@ -412,6 +419,48 @@ describe('CommunitiesService', () => {
       );
 
       expect(result).toBeDefined();
+    });
+
+    it('should refuse to make a second owner', async () => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValueOnce(
+        mockMembership,
+      );
+
+      await expect(
+        service.updateMemberRole(1, 2, CommunityRole.OWNER, 1),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrismaService.communityMember.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject a role outside the enum', async () => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValueOnce(
+        mockMembership,
+      );
+
+      await expect(
+        service.updateMemberRole(1, 2, 'ADMIN' as CommunityRole, 1),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('should throw NotFoundException if the target is not a member', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.updateMemberRole(1, 2, CommunityRole.MODERATOR, 1),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrismaService.communityMember.update).not.toHaveBeenCalled();
+    });
+
+    it('should refuse to change the role of a banned member', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce({ ...targetMembership, bannedAt: new Date() });
+
+      await expect(
+        service.updateMemberRole(1, 2, CommunityRole.MODERATOR, 1),
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should throw ForbiddenException if not owner', async () => {
@@ -441,10 +490,20 @@ describe('CommunitiesService', () => {
   });
 
   describe('banMember', () => {
+    const moderatorMembership = {
+      ...mockMembership,
+      role: CommunityRole.MODERATOR,
+    };
+    const targetMembership = {
+      ...mockMembership,
+      userId: 2,
+      role: CommunityRole.MEMBER,
+    };
+
     it('should allow owner to ban member', async () => {
-      mockPrismaService.communityMember.findUnique.mockResolvedValue(
-        mockMembership,
-      );
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce(targetMembership);
       mockPrismaService.communityMember.update.mockResolvedValue(
         mockMembership,
       );
@@ -456,14 +515,9 @@ describe('CommunitiesService', () => {
     });
 
     it('should allow moderator to ban member', async () => {
-      const moderatorMembership = {
-        ...mockMembership,
-        role: CommunityRole.MODERATOR,
-      };
-
-      mockPrismaService.communityMember.findUnique.mockResolvedValue(
-        moderatorMembership,
-      );
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(moderatorMembership)
+        .mockResolvedValueOnce(targetMembership);
       mockPrismaService.communityMember.update.mockResolvedValue(
         mockMembership,
       );
@@ -472,6 +526,60 @@ describe('CommunitiesService', () => {
       const result = await service.banMember(1, 2, 1);
 
       expect(result).toBeDefined();
+    });
+
+    it('should not let a moderator ban the owner', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(moderatorMembership)
+        .mockResolvedValueOnce({ ...mockMembership, userId: 2 });
+
+      await expect(service.banMember(1, 2, 1)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(mockPrismaService.communityMember.update).not.toHaveBeenCalled();
+    });
+
+    it('should not let a moderator ban another moderator', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(moderatorMembership)
+        .mockResolvedValueOnce({ ...moderatorMembership, userId: 2 });
+
+      await expect(service.banMember(1, 2, 1)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('should not let a banned moderator ban anyone', async () => {
+      mockPrismaService.communityMember.findUnique.mockResolvedValueOnce({
+        ...moderatorMembership,
+        bannedAt: new Date(),
+      });
+
+      await expect(service.banMember(1, 2, 1)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('should throw NotFoundException if the target is not a member', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce(null);
+
+      await expect(service.banMember(1, 2, 1)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrismaService.communityMember.update).not.toHaveBeenCalled();
+    });
+
+    it('should not ban the same member twice', async () => {
+      mockPrismaService.communityMember.findUnique
+        .mockResolvedValueOnce(mockMembership)
+        .mockResolvedValueOnce({ ...targetMembership, bannedAt: new Date() });
+
+      await expect(service.banMember(1, 2, 1)).rejects.toThrow(
+        ConflictException,
+      );
+      expect(mockPrismaService.community.update).not.toHaveBeenCalled();
     });
 
     it('should throw ForbiddenException if not owner or moderator', async () => {

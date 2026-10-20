@@ -122,7 +122,13 @@ export class UsersController {
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id/posts')
-  @ApiOperation({ summary: 'Get user posts' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get user posts',
+    description:
+      'Posts from private communities are included only for their members.',
+  })
   @ApiResponse({
     status: 200,
     description: 'User posts retrieved successfully',
@@ -130,11 +136,13 @@ export class UsersController {
   async getUserPosts(
     @Param('id') id: string,
     @Query() pagination: PaginationDto,
+    @CurrentUser('id') viewerId?: number,
   ) {
     return this.usersService.getUserPosts(
       +id,
       pagination.page,
       pagination.limit,
+      viewerId,
     );
   }
 

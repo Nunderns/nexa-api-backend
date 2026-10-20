@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
@@ -347,6 +348,30 @@ export class CommunitiesService {
       throw new ForbiddenException('Cannot change your own role');
     }
 
+    // OWNER is deliberately not assignable here: a community has exactly one
+    // owner, set at creation. Handing it over needs a dedicated transfer that
+    // demotes the current owner in the same step.
+    if (role !== CommunityRole.MEMBER && role !== CommunityRole.MODERATOR) {
+      throw new BadRequestException('Role must be MEMBER or MODERATOR');
+    }
+
+    const targetMembership = await this.prisma.communityMember.findUnique({
+      where: {
+        communityId_userId: {
+          communityId,
+          userId,
+        },
+      },
+    });
+
+    if (!targetMembership) {
+      throw new NotFoundException('User is not a member of this community');
+    }
+
+    if (targetMembership.bannedAt) {
+      throw new ForbiddenException('Cannot change the role of a banned member');
+    }
+
     const membership = await this.prisma.communityMember.update({
       where: {
         communityId_userId: {
@@ -372,6 +397,7 @@ export class CommunitiesService {
 
     if (
       !currentMembership ||
+      currentMembership.bannedAt ||
       (currentMembership.role !== CommunityRole.OWNER &&
         currentMembership.role !== CommunityRole.MODERATOR)
     ) {
@@ -382,6 +408,35 @@ export class CommunitiesService {
 
     if (userId === currentUserId) {
       throw new ForbiddenException('Cannot ban yourself');
+    }
+
+    const targetMembership = await this.prisma.communityMember.findUnique({
+      where: {
+        communityId_userId: {
+          communityId,
+          userId,
+        },
+      },
+    });
+
+    if (!targetMembership) {
+      throw new NotFoundException('User is not a member of this community');
+    }
+
+    if (targetMembership.role === CommunityRole.OWNER) {
+      throw new ForbiddenException('The owner cannot be banned');
+    }
+
+    // Moderators can ban members only; banning a moderator is the owner's call.
+    if (
+      targetMembership.role === CommunityRole.MODERATOR &&
+      currentMembership.role !== CommunityRole.OWNER
+    ) {
+      throw new ForbiddenException('Only the owner can ban moderators');
+    }
+
+    if (targetMembership.bannedAt) {
+      throw new ConflictException('User is already banned');
     }
 
     const membership = await this.prisma.communityMember.update({

@@ -29,6 +29,7 @@ import { UpdatePostDto } from './dto/update-post.dto';
 import { PostResponseDto } from './dto/post-response.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('posts')
@@ -62,7 +63,13 @@ export class PostsController {
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get()
-  @ApiOperation({ summary: 'Get all posts' })
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get all posts',
+    description:
+      'Posts from private communities are included only for their members.',
+  })
   @ApiQuery({
     name: 'sortBy',
     enum: ['featured', 'hot', 'new', 'top'],
@@ -78,17 +85,21 @@ export class PostsController {
     @Query() pagination: PaginationDto,
     @Query('sortBy') sortBy: string = 'hot',
     @Query('time') time: string = 'all',
+    @CurrentUser('id') viewerId?: number,
   ) {
     return this.postsService.findAll(
       pagination.page,
       pagination.limit,
       sortBy,
       time,
+      viewerId,
     );
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get('community/:communityId')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get posts by community' })
   @ApiQuery({
     name: 'sortBy',
@@ -101,11 +112,16 @@ export class PostsController {
     required: false,
   })
   @ApiResponse({ status: 200, description: 'Posts retrieved successfully' })
+  @ApiResponse({
+    status: 403,
+    description: 'Private community and caller is not a member',
+  })
   async findByCommunity(
     @Param('communityId') communityId: string,
     @Query() pagination: PaginationDto,
     @Query('sortBy') sortBy: string = 'hot',
     @Query('time') time: string = 'all',
+    @CurrentUser('id') viewerId?: number,
   ) {
     return this.postsService.findByCommunity(
       +communityId,
@@ -113,20 +129,30 @@ export class PostsController {
       pagination.limit,
       sortBy,
       time,
+      viewerId,
     );
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
   @Get(':id')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Get post by ID' })
   @ApiResponse({
     status: 200,
     description: 'Post retrieved successfully',
     type: PostResponseDto,
   })
+  @ApiResponse({
+    status: 403,
+    description: 'Private community and caller is not a member',
+  })
   @ApiResponse({ status: 404, description: 'Post not found' })
-  async findOne(@Param('id') id: string): Promise<PostResponseDto> {
-    return this.postsService.findOne(+id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser('id') viewerId?: number,
+  ): Promise<PostResponseDto> {
+    return this.postsService.findOne(+id, viewerId);
   }
 
   @Throttle({
