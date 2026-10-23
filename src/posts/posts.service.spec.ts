@@ -15,12 +15,13 @@ describe('PostsService', () => {
 
   const mockEvents = { emit: jest.fn() };
 
-  const mockPrismaService = {
+  const mockPrismaService: any = {
     post: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
     },
     community: {
@@ -31,6 +32,11 @@ describe('PostsService', () => {
       findUnique: jest.fn(),
     },
   };
+  // Interactive transactions run their callback against the same mock, so
+  // assertions on the model methods hold whether or not the call is inside one.
+  mockPrismaService.$transaction = jest.fn((work: (tx: any) => unknown) =>
+    work(mockPrismaService),
+  );
 
   const mockPost = {
     id: 1,
@@ -451,15 +457,29 @@ describe('PostsService', () => {
   describe('remove', () => {
     it('should delete post if user is author', async () => {
       mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
-      mockPrismaService.post.update.mockResolvedValue(mockPost);
+      mockPrismaService.post.updateMany.mockResolvedValue({ count: 1 });
       mockPrismaService.community.update.mockResolvedValue(mockPost.community);
 
       await service.remove(1, 1);
 
-      expect(mockPrismaService.post.update).toHaveBeenCalledWith({
-        where: { id: 1 },
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.post.updateMany).toHaveBeenCalledWith({
+        where: { id: 1, isDeleted: false },
         data: { isDeleted: true },
       });
+      expect(mockPrismaService.community.update).toHaveBeenCalledWith({
+        where: { id: 1 },
+        data: { postCount: { decrement: 1 } },
+      });
+    });
+
+    it('should not decrement postCount again when the post is already deleted', async () => {
+      mockPrismaService.post.findUnique.mockResolvedValue(mockPost);
+      mockPrismaService.post.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.remove(1, 1);
+
+      expect(mockPrismaService.community.update).not.toHaveBeenCalled();
     });
 
     it('should throw ForbiddenException if user is not author', async () => {
