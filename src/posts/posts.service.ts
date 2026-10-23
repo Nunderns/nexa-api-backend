@@ -48,43 +48,42 @@ export class PostsService {
       throw new ForbiddenException('You are banned from this community');
     }
 
+    const createPost = this.prisma.post.create({
+      data: {
+        communityId: +communityId,
+        authorId: userId,
+        title,
+        content,
+        postType,
+      },
+      include: {
+        community: {
+          select: {
+            id: true,
+            name: true,
+            displayName: true,
+          },
+        },
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+
     // The post row and the community's `postCount` are written together so a
     // failure between the two cannot leave the counter out of step.
-    const post = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.post.create({
-        data: {
-          communityId: +communityId,
-          authorId: userId,
-          title,
-          content,
-          postType,
-        },
-        include: {
-          community: {
-            select: {
-              id: true,
-              name: true,
-              displayName: true,
-            },
-          },
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              avatarUrl: true,
-            },
-          },
-        },
-      });
-
-      await tx.community.update({
+    const [post] = await this.prisma.$transaction([
+      createPost,
+      this.prisma.community.update({
         where: { id: +communityId },
         data: { postCount: { increment: 1 } },
-      });
-
-      return created;
-    });
+      }),
+    ]);
 
     this.events.emit(
       DomainEvent.PostCreated,

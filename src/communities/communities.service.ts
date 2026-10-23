@@ -9,10 +9,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
 import { CommunityResponseDto } from './dto/community-response.dto';
-import { CommunityRole, Prisma } from '@prisma/client';
-
-/** Prisma error code for a unique constraint violation (P2002). */
-const UNIQUE_VIOLATION = 'P2002';
+import { CommunityRole } from '@prisma/client';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 
 @Injectable()
 export class CommunitiesService {
@@ -262,7 +260,7 @@ export class CommunitiesService {
     } catch (error) {
       // A concurrent join for the same user won the race on the primary key;
       // the transaction rolled back, so the counter was not touched.
-      if (this.isUniqueViolation(error)) {
+      if (isUniqueViolation(error)) {
         throw new ConflictException('Already a member of this community');
       }
       throw error;
@@ -489,17 +487,5 @@ export class CommunitiesService {
         },
       });
     });
-  }
-
-  /**
-   * Recognises a unique constraint violation. Prisma error internals are
-   * never forwarded to the client; they are only used to pick the right
-   * response here.
-   */
-  private isUniqueViolation(error: unknown): boolean {
-    return (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === UNIQUE_VIOLATION
-    );
   }
 }

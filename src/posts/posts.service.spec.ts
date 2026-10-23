@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PostsService } from './posts.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { mockPrismaTransactions } from '../common/testing/prisma-transaction';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   DomainEvent,
@@ -15,7 +16,7 @@ describe('PostsService', () => {
 
   const mockEvents = { emit: jest.fn() };
 
-  const mockPrismaService: any = {
+  const mockPrismaService = mockPrismaTransactions({
     post: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -31,12 +32,7 @@ describe('PostsService', () => {
     communityMember: {
       findUnique: jest.fn(),
     },
-  };
-  // Interactive transactions run their callback against the same mock, so
-  // assertions on the model methods hold whether or not the call is inside one.
-  mockPrismaService.$transaction = jest.fn((work: (tx: any) => unknown) =>
-    work(mockPrismaService),
-  );
+  });
 
   const mockPost = {
     id: 1,

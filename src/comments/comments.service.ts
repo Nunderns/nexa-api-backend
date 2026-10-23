@@ -78,41 +78,40 @@ export class CommentsService {
       parentAuthorId = parentComment.authorId;
     }
 
+    const createComment = this.prisma.comment.create({
+      data: {
+        postId,
+        authorId: userId,
+        content,
+        parentId,
+      },
+      include: {
+        author: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+        post: {
+          select: {
+            id: true,
+            title: true,
+          },
+        },
+      },
+    });
+
     // The comment row and the post's `commentCount` are written together so a
     // failure between the two cannot leave the counter out of step.
-    const comment = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.comment.create({
-        data: {
-          postId,
-          authorId: userId,
-          content,
-          parentId,
-        },
-        include: {
-          author: {
-            select: {
-              id: true,
-              username: true,
-              displayName: true,
-              avatarUrl: true,
-            },
-          },
-          post: {
-            select: {
-              id: true,
-              title: true,
-            },
-          },
-        },
-      });
-
-      await tx.post.update({
+    const [comment] = await this.prisma.$transaction([
+      createComment,
+      this.prisma.post.update({
         where: { id: postId },
         data: { commentCount: { increment: 1 } },
-      });
-
-      return created;
-    });
+      }),
+    ]);
 
     this.events.emit(
       DomainEvent.CommentCreated,

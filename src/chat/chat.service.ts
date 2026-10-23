@@ -6,6 +6,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 import { DomainEvent, MessageSentEvent } from '../common/events/domain-events';
 import { CreateChatDto } from './dto/create-chat.dto';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -35,9 +36,6 @@ type ChatWithParticipantsAndLastMessage = Prisma.ChatGetPayload<{
     messages: { take: 1 };
   };
 }>;
-
-/** Prisma error code for a unique constraint violation (P2002). */
-const UNIQUE_VIOLATION = 'P2002';
 
 @Injectable()
 export class ChatService {
@@ -101,7 +99,7 @@ export class ChatService {
       // Lost the race against a concurrent request for the same pair: the
       // other transaction committed first, so the conversation already
       // exists and is served to the caller instead of surfacing a 500.
-      if (this.isUniqueViolation(error)) {
+      if (isUniqueViolation(error)) {
         const concurrent = await this.prisma.chat.findUnique({
           where: { userOneId_userTwoId: { userOneId, userTwoId } },
           include: this.chatInclude,
@@ -378,17 +376,5 @@ export class ChatService {
     return currentUserId < targetUserId
       ? [currentUserId, targetUserId]
       : [targetUserId, currentUserId];
-  }
-
-  /**
-   * Recognises a unique constraint violation. Prisma error internals are
-   * never forwarded to the client; they are only used to pick the right
-   * response here.
-   */
-  private isUniqueViolation(error: unknown): boolean {
-    return (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === UNIQUE_VIOLATION
-    );
   }
 }

@@ -7,12 +7,13 @@ import {
 } from '@nestjs/common';
 import { CommunitiesService } from './communities.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { mockPrismaTransactions } from '../common/testing/prisma-transaction';
 import { CommunityRole, Prisma } from '@prisma/client';
 
 describe('CommunitiesService', () => {
   let service: CommunitiesService;
 
-  const mockPrismaService: any = {
+  const mockPrismaService = mockPrismaTransactions({
     community: {
       findUnique: jest.fn(),
       findMany: jest.fn(),
@@ -32,12 +33,7 @@ describe('CommunitiesService', () => {
       findUniqueOrThrow: jest.fn(),
       count: jest.fn(),
     },
-  };
-  // Interactive transactions run their callback against the same mock, so
-  // assertions on the model methods hold whether or not the call is inside one.
-  mockPrismaService.$transaction = jest.fn((work: (tx: any) => unknown) =>
-    work(mockPrismaService),
-  );
+  });
 
   const mockCommunity = {
     id: 1,
@@ -104,7 +100,6 @@ describe('CommunitiesService', () => {
       const result = await service.create(createCommunityDto, 1);
 
       expect(result).toEqual(mockCommunity);
-      // Owner membership is a nested write, and the owner counts as a member.
       expect(mockPrismaService.community.create).toHaveBeenCalledWith({
         data: {
           ...createCommunityDto,
@@ -297,13 +292,17 @@ describe('CommunitiesService', () => {
   });
 
   describe('join', () => {
-    it('should allow user to join community', async () => {
+    const arrangeJoinable = () => {
       mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
       mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
       mockPrismaService.communityMember.create.mockResolvedValue(
         mockMembership,
       );
       mockPrismaService.community.update.mockResolvedValue(mockCommunity);
+    };
+
+    it('should allow user to join community', async () => {
+      arrangeJoinable();
 
       const result = await service.join(1, 1);
 
@@ -317,8 +316,7 @@ describe('CommunitiesService', () => {
     });
 
     it('should map a concurrent duplicate join to ConflictException', async () => {
-      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
-      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
+      arrangeJoinable();
       mockPrismaService.communityMember.create.mockRejectedValue(
         new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
           code: 'P2002',
@@ -331,12 +329,7 @@ describe('CommunitiesService', () => {
     });
 
     it('should always join as MEMBER, never with an elevated role', async () => {
-      mockPrismaService.community.findUnique.mockResolvedValue(mockCommunity);
-      mockPrismaService.communityMember.findUnique.mockResolvedValue(null);
-      mockPrismaService.communityMember.create.mockResolvedValue(
-        mockMembership,
-      );
-      mockPrismaService.community.update.mockResolvedValue(mockCommunity);
+      arrangeJoinable();
 
       await service.join(1, 1);
 
@@ -366,12 +359,9 @@ describe('CommunitiesService', () => {
   });
 
   describe('leave', () => {
-    it('should allow user to leave community', async () => {
-      const memberMembership = {
-        ...mockMembership,
-        role: CommunityRole.MEMBER,
-      };
+    const memberMembership = { ...mockMembership, role: CommunityRole.MEMBER };
 
+    it('should allow user to leave community', async () => {
       mockPrismaService.communityMember.findUnique.mockResolvedValue(
         memberMembership,
       );
@@ -400,10 +390,9 @@ describe('CommunitiesService', () => {
     });
 
     it('should not decrement memberCount when a concurrent leave already removed the row', async () => {
-      mockPrismaService.communityMember.findUnique.mockResolvedValue({
-        ...mockMembership,
-        role: CommunityRole.MEMBER,
-      });
+      mockPrismaService.communityMember.findUnique.mockResolvedValue(
+        memberMembership,
+      );
       mockPrismaService.communityMember.deleteMany.mockResolvedValue({
         count: 0,
       });
@@ -415,8 +404,7 @@ describe('CommunitiesService', () => {
 
     it('should not let a banned member leave (would decrement twice and lift the ban)', async () => {
       mockPrismaService.communityMember.findUnique.mockResolvedValue({
-        ...mockMembership,
-        role: CommunityRole.MEMBER,
+        ...memberMembership,
         bannedAt: new Date(),
       });
 
@@ -569,30 +557,12 @@ describe('CommunitiesService', () => {
       role: CommunityRole.MEMBER,
     };
 
-    it('should allow owner to ban member', async () => {
+    it.each([
+      ['owner', mockMembership],
+      ['moderator', moderatorMembership],
+    ])('should allow %s to ban member', async (_role, actorMembership) => {
       mockPrismaService.communityMember.findUnique
-        .mockResolvedValueOnce(mockMembership)
-        .mockResolvedValueOnce(targetMembership);
-      mockPrismaService.communityMember.updateMany.mockResolvedValue({
-        count: 1,
-      });
-      mockPrismaService.communityMember.findUniqueOrThrow.mockResolvedValue(
-        mockMembership,
-      );
-      mockPrismaService.community.update.mockResolvedValue(mockCommunity);
-
-      const result = await service.banMember(1, 2, 1);
-
-      expect(result).toBeDefined();
-      expect(mockPrismaService.community.update).toHaveBeenCalledWith({
-        where: { id: 1 },
-        data: { memberCount: { decrement: 1 } },
-      });
-    });
-
-    it('should allow moderator to ban member', async () => {
-      mockPrismaService.communityMember.findUnique
-        .mockResolvedValueOnce(moderatorMembership)
+        .mockResolvedValueOnce(actorMembership)
         .mockResolvedValueOnce(targetMembership);
       mockPrismaService.communityMember.updateMany.mockResolvedValue({
         count: 1,
