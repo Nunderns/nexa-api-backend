@@ -22,6 +22,8 @@ describe('CommunitiesController', () => {
     join: jest.fn(),
     leave: jest.fn(),
     getMembers: jest.fn(),
+    getMembership: jest.fn(),
+    getWeeklyStats: jest.fn(),
     updateMemberRole: jest.fn(),
     banMember: jest.fn(),
   };
@@ -70,6 +72,8 @@ describe('CommunitiesController', () => {
           'POST /communities/:id/join',
           'POST /communities/:id/leave',
           'GET /communities/:id/members',
+          'GET /communities/:id/membership',
+          'GET /communities/:id/stats',
           'PUT /communities/:id/members/:userId/role',
           'POST /communities/:id/members/:userId/ban',
         ].sort(compareRoutes),
@@ -100,6 +104,12 @@ describe('CommunitiesController', () => {
       );
       expect(routeOf(CommunitiesController, 'getMembers')).toBe(
         'GET /communities/:id/members',
+      );
+      expect(routeOf(CommunitiesController, 'getMembership')).toBe(
+        'GET /communities/:id/membership',
+      );
+      expect(routeOf(CommunitiesController, 'getWeeklyStats')).toBe(
+        'GET /communities/:id/stats',
       );
       expect(routeOf(CommunitiesController, 'updateMemberRole')).toBe(
         'PUT /communities/:id/members/:userId/role',
@@ -228,6 +238,32 @@ describe('CommunitiesController', () => {
       await controller.getMembers('1', { page: 2, limit: 50 });
 
       expect(mockCommunitiesService.getMembers).toHaveBeenCalledWith(1, 2, 50);
+    });
+  });
+
+  describe('getMembership', () => {
+    it('should convert the id and pass the current user', async () => {
+      mockCommunitiesService.getMembership.mockResolvedValue({
+        role: CommunityRole.MEMBER,
+        isBanned: false,
+      });
+
+      await controller.getMembership('1', 3);
+
+      expect(mockCommunitiesService.getMembership).toHaveBeenCalledWith(1, 3);
+    });
+  });
+
+  describe('getWeeklyStats', () => {
+    it('should convert the id and pass the optional viewer', async () => {
+      mockCommunitiesService.getWeeklyStats.mockResolvedValue({});
+
+      await controller.getWeeklyStats('1');
+
+      expect(mockCommunitiesService.getWeeklyStats).toHaveBeenCalledWith(
+        1,
+        undefined,
+      );
     });
   });
 

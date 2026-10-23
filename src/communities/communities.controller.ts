@@ -21,8 +21,11 @@ import { CommunitiesService } from './communities.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
 import { CommunityResponseDto } from './dto/community-response.dto';
+import { CommunityMembershipResponseDto } from './dto/community-membership-response.dto';
+import { CommunityStatsResponseDto } from './dto/community-stats-response.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { OptionalJwtAuthGuard } from '../auth/guards/optional-jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CommunityRole } from '@prisma/client';
 
@@ -173,6 +176,49 @@ export class CommunitiesController {
     @CurrentUser('id') userId: number,
   ): Promise<void> {
     return this.communitiesService.leave(+id, userId);
+  }
+
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get(':id/membership')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Get the current user's membership" })
+  @ApiResponse({
+    status: 200,
+    description: 'Membership retrieved successfully',
+    type: CommunityMembershipResponseDto,
+  })
+  @ApiResponse({ status: 404, description: 'Community not found' })
+  async getMembership(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: number,
+  ): Promise<CommunityMembershipResponseDto> {
+    return this.communitiesService.getMembership(+id, userId);
+  }
+
+  @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get(':id/stats')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get community activity for the current week',
+    description: 'The week starts Monday 00:00 UTC.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Stats retrieved successfully',
+    type: CommunityStatsResponseDto,
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Private community and caller is not a member',
+  })
+  @ApiResponse({ status: 404, description: 'Community not found' })
+  async getWeeklyStats(
+    @Param('id') id: string,
+    @CurrentUser('id') viewerId?: number,
+  ): Promise<CommunityStatsResponseDto> {
+    return this.communitiesService.getWeeklyStats(+id, viewerId);
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
