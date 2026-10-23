@@ -48,7 +48,7 @@ export class PostsService {
       throw new ForbiddenException('You are banned from this community');
     }
 
-    const post = await this.prisma.post.create({
+    const createPost = this.prisma.post.create({
       data: {
         communityId: +communityId,
         authorId: userId,
@@ -75,10 +75,15 @@ export class PostsService {
       },
     });
 
-    await this.prisma.community.update({
-      where: { id: +communityId },
-      data: { postCount: { increment: 1 } },
-    });
+    // The post row and the community's `postCount` are written together so a
+    // failure between the two cannot leave the counter out of step.
+    const [post] = await this.prisma.$transaction([
+      createPost,
+      this.prisma.community.update({
+        where: { id: +communityId },
+        data: { postCount: { increment: 1 } },
+      }),
+    ]);
 
     this.events.emit(
       DomainEvent.PostCreated,
@@ -309,14 +314,20 @@ export class PostsService {
       throw new ForbiddenException('You can only delete your own posts');
     }
 
-    await this.prisma.post.update({
-      where: { id },
-      data: { isDeleted: true },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional on `isDeleted: false` so that two concurrent deletes of
+      // the same post decrement `postCount` only once.
+      const { count } = await tx.post.updateMany({
+        where: { id, isDeleted: false },
+        data: { isDeleted: true },
+      });
 
-    await this.prisma.community.update({
-      where: { id: post.communityId },
-      data: { postCount: { decrement: 1 } },
+      if (count === 0) return;
+
+      await tx.community.update({
+        where: { id: post.communityId },
+        data: { postCount: { decrement: 1 } },
+      });
     });
   }
 

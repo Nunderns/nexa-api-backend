@@ -78,7 +78,7 @@ export class CommentsService {
       parentAuthorId = parentComment.authorId;
     }
 
-    const comment = await this.prisma.comment.create({
+    const createComment = this.prisma.comment.create({
       data: {
         postId,
         authorId: userId,
@@ -103,10 +103,15 @@ export class CommentsService {
       },
     });
 
-    await this.prisma.post.update({
-      where: { id: postId },
-      data: { commentCount: { increment: 1 } },
-    });
+    // The comment row and the post's `commentCount` are written together so a
+    // failure between the two cannot leave the counter out of step.
+    const [comment] = await this.prisma.$transaction([
+      createComment,
+      this.prisma.post.update({
+        where: { id: postId },
+        data: { commentCount: { increment: 1 } },
+      }),
+    ]);
 
     this.events.emit(
       DomainEvent.CommentCreated,
@@ -319,14 +324,20 @@ export class CommentsService {
       throw new ForbiddenException('You can only delete your own comments');
     }
 
-    await this.prisma.comment.update({
-      where: { id },
-      data: { isDeleted: true },
-    });
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional on `isDeleted: false` so that two concurrent deletes of
+      // the same comment decrement `commentCount` only once.
+      const { count } = await tx.comment.updateMany({
+        where: { id, isDeleted: false },
+        data: { isDeleted: true },
+      });
 
-    await this.prisma.post.update({
-      where: { id: comment.postId },
-      data: { commentCount: { decrement: 1 } },
+      if (count === 0) return;
+
+      await tx.post.update({
+        where: { id: comment.postId },
+        data: { commentCount: { decrement: 1 } },
+      });
     });
   }
 

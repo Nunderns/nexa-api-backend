@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { CommentsService } from './comments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { mockPrismaTransactions } from '../common/testing/prisma-transaction';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   CommentCreatedEvent,
@@ -14,7 +15,7 @@ describe('CommentsService', () => {
 
   const mockEvents = { emit: jest.fn() };
 
-  const mockPrismaService = {
+  const mockPrismaService = mockPrismaTransactions({
     post: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -24,12 +25,13 @@ describe('CommentsService', () => {
       findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
       count: jest.fn(),
     },
     communityMember: {
       findUnique: jest.fn(),
     },
-  };
+  });
 
   const mockPost = {
     id: 1,
@@ -354,22 +356,29 @@ describe('CommentsService', () => {
   describe('remove', () => {
     it('should soft delete the comment and decrement the post counter', async () => {
       mockPrismaService.comment.findUnique.mockResolvedValue(mockComment);
-      mockPrismaService.comment.update.mockResolvedValue({
-        ...mockComment,
-        isDeleted: true,
-      });
+      mockPrismaService.comment.updateMany.mockResolvedValue({ count: 1 });
       mockPrismaService.post.update.mockResolvedValue(mockPost);
 
       await service.remove(10, 1);
 
-      expect(mockPrismaService.comment.update).toHaveBeenCalledWith({
-        where: { id: 10 },
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.comment.updateMany).toHaveBeenCalledWith({
+        where: { id: 10, isDeleted: false },
         data: { isDeleted: true },
       });
       expect(mockPrismaService.post.update).toHaveBeenCalledWith({
         where: { id: 1 },
         data: { commentCount: { decrement: 1 } },
       });
+    });
+
+    it('should not decrement commentCount again when the comment is already deleted', async () => {
+      mockPrismaService.comment.findUnique.mockResolvedValue(mockComment);
+      mockPrismaService.comment.updateMany.mockResolvedValue({ count: 0 });
+
+      await service.remove(10, 1);
+
+      expect(mockPrismaService.post.update).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException if comment not found', async () => {

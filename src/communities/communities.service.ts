@@ -12,6 +12,7 @@ import { CommunityResponseDto } from './dto/community-response.dto';
 import { CommunityMembershipResponseDto } from './dto/community-membership-response.dto';
 import { CommunityStatsResponseDto } from './dto/community-stats-response.dto';
 import { CommunityRole } from '@prisma/client';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 
 function startOfUtcWeek(now: Date): Date {
   const start = new Date(
@@ -38,18 +39,16 @@ export class CommunitiesService {
       throw new ConflictException('Community name already exists');
     }
 
+    // Nested write: the community and its owner membership are created in one
+    // statement, and `memberCount` starts at 1 because the owner is a member.
     const community = await this.prisma.community.create({
       data: {
         ...createCommunityDto,
         createdBy: userId,
-      },
-    });
-
-    await this.prisma.communityMember.create({
-      data: {
-        communityId: community.id,
-        userId,
-        role: CommunityRole.OWNER,
+        memberCount: 1,
+        members: {
+          create: { userId, role: CommunityRole.OWNER },
+        },
       },
     });
 
@@ -250,22 +249,33 @@ export class CommunitiesService {
       throw new ConflictException('Already a member of this community');
     }
 
-    const membership = await this.prisma.communityMember.create({
-      data: {
-        communityId: id,
-        userId,
-        // Always MEMBER: the role is never taken from the client. Promotion
-        // goes through `updateMemberRole`, which only the owner can call.
-        role: CommunityRole.MEMBER,
-      },
-    });
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const membership = await tx.communityMember.create({
+          data: {
+            communityId: id,
+            userId,
+            // Always MEMBER: the role is never taken from the client. Promotion
+            // goes through `updateMemberRole`, which only the owner can call.
+            role: CommunityRole.MEMBER,
+          },
+        });
 
-    await this.prisma.community.update({
-      where: { id },
-      data: { memberCount: { increment: 1 } },
-    });
+        await tx.community.update({
+          where: { id },
+          data: { memberCount: { increment: 1 } },
+        });
 
-    return membership;
+        return membership;
+      });
+    } catch (error) {
+      // A concurrent join for the same user won the race on the primary key;
+      // the transaction rolled back, so the counter was not touched.
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('Already a member of this community');
+      }
+      throw error;
+    }
   }
 
   async leave(id: number, userId: number): Promise<void> {
@@ -286,18 +296,30 @@ export class CommunitiesService {
       throw new ForbiddenException('Owner cannot leave the community');
     }
 
-    await this.prisma.communityMember.delete({
-      where: {
-        communityId_userId: {
+    // A banned member was already taken off `memberCount` by the ban, and
+    // deleting the row would also erase the ban and let them join again.
+    if (membership.bannedAt) {
+      throw new ForbiddenException('You are banned from this community');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Conditional delete so that two concurrent leaves (or a leave racing a
+      // ban) decrement `memberCount` only once.
+      const { count } = await tx.communityMember.deleteMany({
+        where: {
           communityId: id,
           userId,
+          bannedAt: null,
+          role: { not: CommunityRole.OWNER },
         },
-      },
-    });
+      });
 
-    await this.prisma.community.update({
-      where: { id },
-      data: { memberCount: { decrement: 1 } },
+      if (count === 0) return;
+
+      await tx.community.update({
+        where: { id },
+        data: { memberCount: { decrement: 1 } },
+      });
     });
   }
 
@@ -529,21 +551,31 @@ export class CommunitiesService {
       throw new ConflictException('User is already banned');
     }
 
-    const membership = await this.prisma.communityMember.update({
-      where: {
-        communityId_userId: {
-          communityId,
-          userId,
+    return this.prisma.$transaction(async (tx) => {
+      // Conditional on `bannedAt: null` so that two concurrent bans of the
+      // same member decrement `memberCount` only once.
+      const { count } = await tx.communityMember.updateMany({
+        where: { communityId, userId, bannedAt: null },
+        data: { bannedAt: new Date() },
+      });
+
+      if (count === 0) {
+        throw new ConflictException('User is already banned');
+      }
+
+      await tx.community.update({
+        where: { id: communityId },
+        data: { memberCount: { decrement: 1 } },
+      });
+
+      return tx.communityMember.findUniqueOrThrow({
+        where: {
+          communityId_userId: {
+            communityId,
+            userId,
+          },
         },
-      },
-      data: { bannedAt: new Date() },
+      });
     });
-
-    await this.prisma.community.update({
-      where: { id: communityId },
-      data: { memberCount: { decrement: 1 } },
-    });
-
-    return membership;
   }
 }
