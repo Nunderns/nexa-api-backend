@@ -9,8 +9,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
 import { UpdateCommunityDto } from './dto/update-community.dto';
 import { CommunityResponseDto } from './dto/community-response.dto';
+import { CommunityMembershipResponseDto } from './dto/community-membership-response.dto';
+import { CommunityStatsResponseDto } from './dto/community-stats-response.dto';
 import { CommunityRole } from '@prisma/client';
 import { isUniqueViolation } from '../prisma/prisma-errors';
+
+function startOfUtcWeek(now: Date): Date {
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const daysSinceMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - daysSinceMonday);
+  return start;
+}
 
 @Injectable()
 export class CommunitiesService {
@@ -344,6 +355,85 @@ export class CommunitiesService {
       page,
       limit,
       totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  async getMembership(
+    communityId: number,
+    userId: number,
+  ): Promise<CommunityMembershipResponseDto> {
+    await this.findOne(communityId);
+
+    const membership = await this.prisma.communityMember.findUnique({
+      where: {
+        communityId_userId: {
+          communityId,
+          userId,
+        },
+      },
+    });
+
+    const isBanned = Boolean(membership?.bannedAt);
+
+    return {
+      role: membership && !isBanned ? membership.role : null,
+      isBanned,
+    };
+  }
+
+  /**
+   * Visitors are distinct viewers of the community's posts, since visits to
+   * the community page itself are not recorded. Private communities only
+   * report to their members, matching the post listing.
+   */
+  async getWeeklyStats(
+    communityId: number,
+    viewerId?: number,
+  ): Promise<CommunityStatsResponseDto> {
+    const community = await this.findOne(communityId);
+
+    if (community.isPrivate) {
+      const membership = viewerId
+        ? await this.prisma.communityMember.findUnique({
+            where: {
+              communityId_userId: {
+                communityId,
+                userId: viewerId,
+              },
+            },
+          })
+        : null;
+
+      if (!membership || membership.bannedAt) {
+        throw new ForbiddenException(
+          'You must be a member of this private community to view its stats',
+        );
+      }
+    }
+
+    const weekStart = startOfUtcWeek(new Date());
+
+    const [viewers, postCount, commentCount] = await Promise.all([
+      this.prisma.postView.groupBy({
+        by: ['viewerKey'],
+        where: { post: { communityId }, viewedAt: { gte: weekStart } },
+      }),
+      this.prisma.post.count({
+        where: { communityId, isDeleted: false, createdAt: { gte: weekStart } },
+      }),
+      this.prisma.comment.count({
+        where: {
+          post: { communityId },
+          isDeleted: false,
+          createdAt: { gte: weekStart },
+        },
+      }),
+    ]);
+
+    return {
+      weekStart,
+      visitors: viewers.length,
+      contributions: postCount + commentCount,
     };
   }
 
