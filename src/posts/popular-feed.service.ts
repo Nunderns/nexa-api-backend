@@ -20,17 +20,9 @@ export interface PopularFeedQuery {
 
 const HOUR_MS = 60 * 60 * 1000;
 
-/**
- * Ranks the popular timeline. See `popular.constants.ts` for what feeds it.
- *
- * The rankings are expressions over several columns (and, for `rising`, over
- * the view rollup), which Prisma's `orderBy` cannot express, so the page of
- * ids is selected in SQL and the posts are then loaded with the same shape
- * `GET /posts` returns.
- */
 @Injectable()
 export class PopularFeedService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async find(query: PopularFeedQuery) {
     const { page, limit } = query;
@@ -99,12 +91,13 @@ export class PopularFeedService {
       Prisma.sql`c.is_nsfw = false`,
     ];
 
-    const windowMs =
-      query.sort === 'top'
-        ? POPULAR_TIME_WINDOW_MS[query.t]
-        : query.sort === 'rising'
-          ? RISING_MAX_AGE_MS
-          : null;
+    let windowMs: number | null = null;
+    if (query.sort === 'top') {
+      windowMs = POPULAR_TIME_WINDOW_MS[query.t];
+    } else if (query.sort === 'rising') {
+      windowMs = RISING_MAX_AGE_MS;
+    }
+
     if (windowMs !== null) {
       conditions.push(
         Prisma.sql`p.created_at >= ${new Date(now.getTime() - windowMs)}`,
