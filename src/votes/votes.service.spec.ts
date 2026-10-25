@@ -309,6 +309,51 @@ describe('VotesService', () => {
         },
       });
     });
+
+    it.each([
+      [
+        'a downvote to an upvote',
+        -1,
+        1,
+        { increment: 2 },
+        { increment: 1 },
+        { decrement: 1 },
+      ],
+      [
+        'an upvote to a downvote',
+        1,
+        -1,
+        { increment: -2 },
+        { decrement: 1 },
+        { increment: 1 },
+      ],
+      ['an unchanged upvote', 1, 1, { increment: 0 }, undefined, undefined],
+    ])(
+      'should move the comment counters when changing %s',
+      async (_label, previous, next, score, upvoteCount, downvoteCount) => {
+        const existing = { userId: 1, commentId: 10, vote: previous };
+
+        mockPrismaService.comment.findUnique.mockResolvedValue(mockComment);
+        mockPrismaService.commentVote.findUnique.mockResolvedValue(existing);
+        mockPrismaService.commentVote.update.mockResolvedValue({
+          ...existing,
+          vote: next,
+        });
+
+        await expect(
+          service.voteOnComment(10, { vote: next }, 1),
+        ).resolves.toMatchObject({ vote: next });
+
+        expect(mockPrismaService.commentVote.update).toHaveBeenCalledWith({
+          where: { userId_commentId: { userId: 1, commentId: 10 } },
+          data: { vote: next },
+        });
+        expect(mockPrismaService.comment.update).toHaveBeenCalledWith({
+          where: { id: 10 },
+          data: { score, upvoteCount, downvoteCount },
+        });
+      },
+    );
   });
 
   describe('getPostVote', () => {

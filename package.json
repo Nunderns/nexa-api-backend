@@ -107,7 +107,10 @@
       "/node_modules/(?!(@nestjs/(jwt|passport|config))/)"
     ],
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "**/*.(t|j)s",
+      "!main.ts",
+      "!**/*.module.ts",
+      "!common/testing/**"
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"

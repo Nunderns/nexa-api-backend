@@ -12,6 +12,7 @@ describe('App (e2e)', () => {
   let app: INestApplication<App>;
 
   const mockPrismaService = {
+    $queryRaw: jest.fn(),
     post: {
       findMany: jest.fn(),
       count: jest.fn(),
@@ -78,6 +79,30 @@ describe('App (e2e)', () => {
       expect(mockPrismaService.post.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 0, take: 20 }),
       );
+    });
+  });
+
+  describe('GET /posts/popular', () => {
+    it('is not swallowed by GET /posts/:id', async () => {
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([{ id: 1 }])
+        .mockResolvedValueOnce([{ total: BigInt(1) }]);
+      mockPrismaService.post.findMany.mockResolvedValue([mockPost]);
+
+      const response = await request(app.getHttpServer())
+        .get('/posts/popular')
+        .query({ sort: 'rising', geo: 'br' })
+        .expect(200);
+
+      expect(response.body.data).toMatchObject({ data: [mockPost], total: 1 });
+      expect(mockPrismaService.post.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('rejects a country outside the list', async () => {
+      await request(app.getHttpServer())
+        .get('/posts/popular')
+        .query({ geo: 'ZZ' })
+        .expect(400);
     });
   });
 
