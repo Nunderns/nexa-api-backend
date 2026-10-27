@@ -550,7 +550,7 @@ async function seedChats(ctx: SeedContext): Promise<void> {
     // Canonical order, as the `chats` check constraint requires.
     const [userOneId, userTwoId] = [Math.min(...ids), Math.max(...ids)];
 
-    const { id: chatId } = ctx.prisma.chat.upsert({
+    const { id: chatId } = await ctx.prisma.chat.upsert({
       where: { userOneId_userTwoId: { userOneId, userTwoId } },
       update: {},
       create: { userOneId, userTwoId },

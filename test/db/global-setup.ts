@@ -1,22 +1,19 @@
-import { PGlite } from '@electric-sql/pglite';
+import { PGlite, type Extension } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/**
- * Starts a throwaway PostgreSQL (PGlite, in-process WASM) for the e2e run and
- * exposes it over the wire protocol, so the app talks to it through its
- * normal `pg` driver adapter. Nothing outside this process is touched: no
- * Docker, no `DATABASE_URL`, no shared database.
- *
- * Runs here rather than inside a test file because PGlite loads its WASM with
- * a dynamic import, which Jest's module sandbox does not allow.
- */
-
 const ROOT = join(__dirname, '..', '..');
 const MIGRATIONS = join(ROOT, 'prisma', 'migrations');
+
+// tsconfig's `moduleResolution: node` ignores package `exports`, so this
+// subpath has no types under tsc; Node resolves it at runtime regardless.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { unaccent } = require('@electric-sql/pglite/contrib/unaccent') as {
+  unaccent: Extension;
+};
 
 declare global {
   var __PGLITE_SERVER__: PGLiteSocketServer | undefined;
@@ -24,7 +21,8 @@ declare global {
 }
 
 export default async function globalSetup(): Promise<void> {
-  const db = await PGlite.create();
+  // The full-text search migration needs unaccent.
+  const db = await PGlite.create({ extensions: { unaccent } });
 
   // The real migration history, in order: this is what proves the
   // migrations apply cleanly on top of each other.
@@ -53,19 +51,17 @@ export default async function globalSetup(): Promise<void> {
   const url = `postgresql://postgres:postgres@${server.getServerConn()}/postgres`;
   process.env.TEST_DATABASE_URL = url;
 
-  await healSchemaDrift(url);
+  await assertNoSchemaDrift(url);
 
   globalThis.__PGLITE_SERVER__ = server;
   globalThis.__PGLITE_DB__ = db;
 }
 
 /**
- * The schema has columns that predate any migration (email verification and
- * password reset were applied without one). Bring the test database up to
- * the schema so the app can run, but fail loudly if the gap ever involves
- * the notification tables: those must be fully covered by migrations.
+ * Fail if prisma/migrations does not produce exactly schema.prisma, so a
+ * schema change can never ship without its migration.
  */
-async function healSchemaDrift(url: string): Promise<void> {
+async function assertNoSchemaDrift(url: string): Promise<void> {
   // Async on purpose: this process also serves the database, so a blocking
   // call would leave the Prisma CLI unable to connect.
   const { stdout: script } = await promisify(execFile)(
@@ -88,21 +84,9 @@ async function healSchemaDrift(url: string): Promise<void> {
     },
   );
 
-  if (/notification/i.test(script)) {
-    throw new Error(
-      'prisma/migrations does not match schema.prisma for the notification ' +
-        `tables. Missing changes:\n${script}`,
-    );
-  }
-
   if (script.trim() && !script.includes('This is an empty migration')) {
-    const { Client } = await import('pg');
-    const client = new Client({ connectionString: url });
-    await client.connect();
-    try {
-      await client.query(script);
-    } finally {
-      await client.end();
-    }
+    throw new Error(
+      `prisma/migrations does not match schema.prisma. Missing changes:\n${script}`,
+    );
   }
 }
