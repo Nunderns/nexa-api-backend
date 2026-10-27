@@ -8,7 +8,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { visibleCommunityWhere } from '../posts/post-visibility';
 
-const PUBLIC_USER_FIELDS = {
+export const PUBLIC_USER_FIELDS = {
   id: true,
   username: true,
   displayName: true,
