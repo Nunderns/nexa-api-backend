@@ -16,6 +16,7 @@ describe('UsersController', () => {
     findByUsername: jest.fn(),
     update: jest.fn(),
     remove: jest.fn(),
+    exportData: jest.fn(),
     getUserPosts: jest.fn(),
     getUserComments: jest.fn(),
     getUserUpvoted: jest.fn(),
@@ -61,6 +62,7 @@ describe('UsersController', () => {
           'GET /users/username/:username',
           'PUT /users/:id',
           'DELETE /users/:id',
+          'GET /users/me/export',
           'GET /users/:id/posts',
           'GET /users/:id/comments',
           'GET /users/:id/upvoted',
@@ -77,6 +79,9 @@ describe('UsersController', () => {
       );
       expect(routeOf(UsersController, 'update')).toBe('PUT /users/:id');
       expect(routeOf(UsersController, 'remove')).toBe('DELETE /users/:id');
+      expect(routeOf(UsersController, 'exportData')).toBe(
+        'GET /users/me/export',
+      );
       expect(routeOf(UsersController, 'getUserPosts')).toBe(
         'GET /users/:id/posts',
       );
@@ -160,9 +165,21 @@ describe('UsersController', () => {
     it('should forward the id and the current user id', async () => {
       mockUsersService.remove.mockResolvedValue(undefined);
 
-      await controller.remove('1', 1);
+      await controller.remove('1', { password: 'pw' }, 1);
 
-      expect(mockUsersService.remove).toHaveBeenCalledWith(1, 1);
+      expect(mockUsersService.remove).toHaveBeenCalledWith(1, 1, 'pw');
+    });
+  });
+
+  describe('exportData', () => {
+    it('should export the current user data', async () => {
+      const exported = { id: 1 };
+      mockUsersService.exportData.mockResolvedValue(exported);
+
+      const result = await controller.exportData(1);
+
+      expect(result).toBe(exported);
+      expect(mockUsersService.exportData).toHaveBeenCalledWith(1);
     });
   });
 
