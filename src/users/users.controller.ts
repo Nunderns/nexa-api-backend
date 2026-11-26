@@ -15,9 +15,13 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
-import { GLOBAL_RATE_LIMIT } from '../common/config/rate-limit.config';
+import {
+  AUTH_RATE_LIMIT,
+  GLOBAL_RATE_LIMIT,
+} from '../common/config/rate-limit.config';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { DeleteAccountDto } from './dto/delete-account.dto';
 import { UserResponseDto } from './dto/user-response.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -103,11 +107,32 @@ export class UsersController {
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
+  @Get('me/export')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Export my data',
+    description:
+      'Returns everything stored about the caller (LGPD data portability).',
+  })
+  @ApiResponse({ status: 200, description: 'Data exported successfully' })
+  async exportData(@CurrentUser('id') currentUserId: number) {
+    return this.usersService.exportData(currentUserId);
+  }
+
+  // Password-confirmed, so it gets the credential endpoints' budget.
+  @Throttle({ default: AUTH_RATE_LIMIT })
   @Delete(':id')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Deactivate user account' })
-  @ApiResponse({ status: 204, description: 'User deactivated successfully' })
+  @ApiOperation({
+    summary: 'Delete user account',
+    description:
+      'Irreversibly anonymizes the account and erases its content (LGPD). ' +
+      'Export the data first with `GET /users/me/export` if needed.',
+  })
+  @ApiResponse({ status: 204, description: 'User deleted successfully' })
+  @ApiResponse({ status: 401, description: 'Invalid password' })
   @ApiResponse({
     status: 403,
     description: 'Forbidden - can only delete own account',
@@ -115,9 +140,14 @@ export class UsersController {
   @ApiResponse({ status: 404, description: 'User not found' })
   async remove(
     @Param('id') id: string,
+    @Body() deleteAccountDto: DeleteAccountDto,
     @CurrentUser('id') currentUserId: number,
   ): Promise<void> {
-    return this.usersService.remove(+id, currentUserId);
+    return this.usersService.remove(
+      +id,
+      currentUserId,
+      deleteAccountDto.password,
+    );
   }
 
   @Throttle({ default: GLOBAL_RATE_LIMIT })
